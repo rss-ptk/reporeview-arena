@@ -9,8 +9,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .repository import RepositoryReader
 from .reports import parse_report, validate_locations
+from .repository import RepositoryReader
 from .storage import load_json, save_json
 
 # Self-contained OpenAI function calling tool definitions; never expose shell commands.
@@ -124,7 +124,7 @@ async def audit_one(
                 if not isinstance(args, dict):
                     raise ValueError("tool arguments must be an object")
                 result = _execute_tool(reader, call.function.name, args)
-            except (ValueError, TypeError, KeyError):
+            except (ValueError, TypeError, KeyError) as exc:
                 result = f"ERROR: {type(exc).__name__}: invalid tool arguments"
             batch.append({"role": "tool", "tool_call_id": call.id, "content": result[:14_000]})
             usage["tools"] += 1

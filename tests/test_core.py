@@ -36,7 +36,9 @@ def competition(tmp_path: Path):
     manifest = snapshot_repo(repo, workspace)
     save_json(workspace / "manifest.json", manifest)
     reader = RepositoryReader(workspace / "snapshot")
-    (workspace / "prompt.md").write_text(build_prompt(manifest, "find bugs", reader.describe()))
+    (workspace / "prompt.md").write_text(
+        build_prompt(manifest, "find bugs", reader.describe()), encoding="utf-8"
+    )
     return repo, workspace, manifest
 
 
@@ -82,6 +84,22 @@ def test_reader_is_bounded_and_prevents_traversal(competition):
     assert "main.py:2" in r.search_code("return 123")
     assert "ERROR" in r.search_code("")
     assert "ERROR" in _execute_tool(r, "fake", {})
+
+
+@pytest.mark.parametrize("newline", [b"\n", b"\r\n"])
+def test_snapshot_preserves_source_newlines(competition, newline):
+    repo, workspace, _ = competition
+    source = newline.join([b"def run():", b"    return 123", b""])
+    (repo / "main.py").write_bytes(source)
+    git(repo, "add", "main.py")
+    git(repo, "commit", "--allow-empty", "-qm", "set source newlines")
+    destination = workspace.parent / "newline-arena"
+
+    snapshot_repo(repo, destination)
+
+    assert (destination / "snapshot" / "main.py").read_bytes() == source
+    reader = RepositoryReader(destination / "snapshot")
+    assert reader.read_file("main.py") == "1: def run():\n2:     return 123"
 
 
 def test_reports_and_scorecard(competition):
@@ -146,6 +164,37 @@ async def test_model_audit_toolloop_offline_mock(competition):
     output = load_json(workspace / "reports" / "mock.json")
     assert output["audit_metadata"]["commit"] == load_json(workspace / "manifest.json")["commit"]
     assert output["audit_metadata"]["calls"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("arguments,error_type", [
+    ("not-json", "JSONDecodeError"),
+    ("[]", "ValueError"),
+    ("{}", "KeyError"),
+    ('{"path":"main.py","start_line":null}', "TypeError"),
+])
+async def test_model_audit_recovers_from_invalid_tool_arguments(competition, arguments, error_type):
+    _, workspace, _ = competition
+    calls = []
+    tool = SimpleNamespace(
+        id="invalid", function=SimpleNamespace(name="read_file", arguments=arguments)
+    )
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            message = SimpleNamespace(content="", tool_calls=[tool])
+        else:
+            message = SimpleNamespace(content=json.dumps(sample_report()), tool_calls=[])
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None)
+
+    result = await audit_one(workspace, {"id": "mock", "model": "test/mock"}, completion=completion)
+
+    assert result["findings"] == 2
+    assert calls[1]["messages"][-1] == {
+        "role": "tool", "tool_call_id": "invalid",
+        "content": f"ERROR: {error_type}: invalid tool arguments",
+    }
 
 
 @pytest.mark.asyncio

@@ -99,7 +99,7 @@ def snapshot_repo(repo: Path, destination: Path) -> dict[str, Any]:
             continue
         target = snapshot / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(contents, encoding="utf-8")
+        target.write_text(contents, encoding="utf-8", newline="")
         kept.append({"path": name, "bytes": len(blob), "sha256": hashlib.sha256(blob).hexdigest()})
         total += size
     return {

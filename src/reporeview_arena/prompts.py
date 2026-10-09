@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 AUDIT_TEMPLATE = """# RepoReview Arena — independent code audit
 
 You are an independent contestant in a multi-model software engineering audit.

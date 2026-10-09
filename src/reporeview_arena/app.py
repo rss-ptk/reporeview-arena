@@ -13,7 +13,6 @@ from .reports import parse_report, validate_locations
 from .scoring import leaderboard
 from .storage import load_json, save_json
 
-
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RepoReview Arena</title>
