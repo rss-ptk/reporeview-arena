@@ -1,0 +1,43 @@
+{
+  "summary": "Demonstration only: the sample app permits withdrawals beyond its available balance.",
+  "hotpath": "withdraw(amount) -> balance mutation -> return balance",
+  "coverage": ["app.py withdraw function"],
+  "limitations": ["Sample report is hand-written; no LLM audit was executed."],
+  "findings": [
+    {
+      "id": "FS-AUD-001",
+      "title": "Withdrawals can exceed available funds",
+      "severity": "P1",
+      "evidence_status": "strong_evidence",
+      "confidence": 0.97,
+      "file": "app.py",
+      "line": 8,
+      "invariant": "balance should not become negative after a normal withdrawal",
+      "description": "The amount is checked only for non-negativity; no balance cap exists.",
+      "scenario": "Starting with balance=100, call withdraw(150), resulting in -50.",
+      "evidence": "app.py lines 8-9 subtract amount without checking it against balance.",
+      "impact": "Negative balances can be recorded.",
+      "recommendation": "Refuse withdrawals above available balance before changing state.",
+      "regression_test": "Initialize balance=100, assert withdraw(150) raises and preserves balance."
+    }
+  ],
+  "test_gaps": ["Missing regression for overdraft rejection"],
+  "improvements": [
+    {
+      "title": "State encapsulation",
+      "impact": "Prevent uncontrolled global balance mutations",
+      "effort": "low",
+      "validation": "Unit tests enforce state invariants"
+    }
+  ],
+  "golden_feature": {
+    "name": "Double-entry journal",
+    "opportunity": "No transaction-level audit trail",
+    "mechanism": "Make every balance mutation accountable and auditable",
+    "integration": "withdraw and state store",
+    "feasibility": "Medium effort; needs transactional persistence",
+    "experiment": "Property-based tests of conservation invariants",
+    "success_criterion": "No invariant violations across test suite",
+    "novelty_check": "Only single mutable balance variable exists in the example"
+  }
+}
