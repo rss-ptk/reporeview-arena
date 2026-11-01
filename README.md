@@ -85,6 +85,18 @@ Each model gets an isolated conversation and only three functions: `list_files`,
 
 Runs save `reports/<model-id>.json`. The CLI refuses to overwrite them. A failed model is reported separately, without corrupting successful reports. Token usage is recorded when returned by the provider; cost billing depends on the provider and is not capped by this version.
 
+Temporary provider failures (rate limits, service outages, connection errors and timeouts) retry up to twice per API call, with delays starting at five seconds and doubling up to 60 seconds. `--retries 0` disables retries; `--retry-delay` sets the initial delay. The Arena honors `Retry-After`; a provider asking for more than 60 seconds ends that audit with the requested wait in the failure details. Retries keep the same model and conversation.
+
+For free endpoints, start with one concurrent auditor to reduce request bursts:
+
+```bash
+reporeview run --workspace ./arenas/project-2026 --models models.json --concurrency 1 --retries 2 --retry-delay 5 --confirm-send-code
+```
+
+Each tool round is another API request. Reducing concurrency does not reset daily quotas or restore an unavailable model. Check [OpenRouter rate limits](https://openrouter.ai/docs/api/reference/limits) and [provider errors](https://openrouter.ai/docs/api/reference/errors) when these failures persist.
+
+Failures include a `stage` (`provider`, `report` or `workspace`) and an actionable message. Provider failures include an HTTP status and `Retry-After` when available; Arena diagnostics omit SDK exception messages and request payloads. Invalid, empty or truncated model reports are saved locally to `failures/<model-id>.json` with `raw_response`, `validation_error`, `finish_reason` and token usage. Inspect this file to distinguish malformed JSON, schema problems and invalid file/line citations. The latest rejected response replaces an older failure artifact for the same model; it is never accepted as a scored report. If output was truncated, adjust that model's `max_tokens` in `models.json` or request a shorter report. To rerun only failed contestants, set `"enabled": false` on entries with existing successful reports.
+
 ## Option B: audits via VS Code or other coding agents
 
 ```bash

@@ -28,6 +28,10 @@ def parser() -> argparse.ArgumentParser:
     audit.add_argument("--models", required=True, type=Path, help="Path to models.json")
     audit.add_argument("--concurrency", type=int, default=2)
     audit.add_argument("--max-steps", type=int, default=35)
+    audit.add_argument("--retries", type=int, choices=range(6), default=2,
+                       help="Retries per provider call for temporary failures (default: 2)")
+    audit.add_argument("--retry-delay", type=float, default=5,
+                       help="Initial retry delay in seconds, 0-60; doubles up to 60 (default: 5)")
     audit.add_argument("--confirm-send-code", action="store_true", help="Explicitly authorize selected providers to receive approved source fragments")
     imp = command.add_parser("import", help="Import a structured JSON report from VS Code or elsewhere")
     imp.add_argument("--workspace", required=True, type=Path)
@@ -76,6 +80,8 @@ def execute(args: argparse.Namespace) -> None:
     elif args.command == "run":
         if not args.confirm_send_code:
             raise ValueError("Sending source requires --confirm-send-code")
+        if not 0 <= args.retry_delay <= 60:
+            raise ValueError("--retry-delay must be between 0 and 60 seconds")
         config = load_json(args.models)
         models = config.get("models", [])
         if not models:
@@ -89,10 +95,13 @@ def execute(args: argparse.Namespace) -> None:
                 raise ValueError(f"Refusing to overwrite an existing audit: {m['id']}")
         print(f"Sending read-only snapshot fragments to {len(approved)} model providers.")
         outcome = asyncio.run(audit_many(workspace, approved, concurrency=args.concurrency,
-                                        max_steps=args.max_steps))
+                                        max_steps=args.max_steps, retries=args.retries,
+                                        retry_delay=args.retry_delay))
         print(json.dumps(outcome, indent=2))
-        if any("error" in item for item in outcome):
-            raise RuntimeError("Some model audits failed; successful reports were saved")
+        failed = sum("error" in item for item in outcome)
+        if failed:
+            raise RuntimeError(f"{failed} model audits failed; {len(outcome) - failed} reports saved. "
+                               "See failure details above.")
     elif args.command == "import":
         model_id = model_slug(args.model)
         target = workspace / "reports" / f"{model_id}.json"
