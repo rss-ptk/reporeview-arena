@@ -13,3 +13,5 @@ dist/
 build/
 coverage/
 *.log
+workspace_arena/*
+models.json
