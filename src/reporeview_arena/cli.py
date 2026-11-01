@@ -10,10 +10,9 @@ from pathlib import Path
 
 from .app import _data, serve
 from .orchestrator import audit_many, model_slug
-from .prompts import build_prompt
 from .reports import parse_report, validate_locations
-from .repository import RepositoryReader, snapshot_repo
 from .storage import load_json, save_json
+from .workspace import DEFAULT_FOCUS, initialize_workspace
 
 
 def parser() -> argparse.ArgumentParser:
@@ -22,7 +21,7 @@ def parser() -> argparse.ArgumentParser:
     init = command.add_parser("init", help="Create a frozen audit workspace for a clean Git checkout")
     init.add_argument("--repo", required=True, type=Path)
     init.add_argument("--out", required=True, type=Path)
-    init.add_argument("--focus", default="Audit the most consequential hotpaths, correctness, failure recovery, security, and major architecture gaps. Focus on what can cause real harm.")
+    init.add_argument("--focus", default=DEFAULT_FOCUS)
     audit = command.add_parser("run", help="Audit concurrently using configured BYOK models")
     audit.add_argument("--workspace", required=True, type=Path)
     audit.add_argument("--models", required=True, type=Path, help="Path to models.json")
@@ -37,8 +36,9 @@ def parser() -> argparse.ArgumentParser:
     imp.add_argument("--workspace", required=True, type=Path)
     imp.add_argument("--model", required=True)
     imp.add_argument("--file", required=True, type=Path)
-    web = command.add_parser("web", help="Launch a local adjudication and ranking dashboard")
-    web.add_argument("--workspace", required=True, type=Path)
+    web = command.add_parser("web", help="Launch the local workspace, audit and review dashboard")
+    web.add_argument("--workspace", type=Path, help="Optional initial audit workspace")
+    web.add_argument("--models", type=Path, help="Optional path to models.json for web audits")
     web.add_argument("--port", type=int, default=8765)
     score = command.add_parser("score", help="Output current validated scorecard as JSON")
     score.add_argument("--workspace", required=True, type=Path)
@@ -63,14 +63,13 @@ def parser() -> argparse.ArgumentParser:
 
 def execute(args: argparse.Namespace) -> None:
     if args.command == "init":
-        manifest = snapshot_repo(args.repo, args.out)
-        save_json(args.out / "manifest.json", manifest)
-        reader = RepositoryReader(args.out / "snapshot")
-        text = build_prompt(manifest, args.focus, reader.describe())
-        (args.out / "prompt.md").write_text(text, encoding="utf-8")
+        manifest = initialize_workspace(args.repo, args.out, args.focus)
         print(json.dumps({"workspace": str(args.out), "commit": manifest["commit"],
                           "files": manifest["file_count"], "skipped": len(manifest["skipped"])}, indent=2))
         print("Review manifest.json excluded files. The snapshot is for external LLM sharing.")
+        return
+    if args.command == "web":
+        serve(args.workspace, port=args.port, models=args.models)
         return
     workspace = args.workspace.resolve()
     if not (workspace / "manifest.json").exists():
@@ -115,8 +114,6 @@ def execute(args: argparse.Namespace) -> None:
                                      "commit": manifest["commit"]}
         save_json(target, report)
         print(f"Imported {model_id}: {len(report['findings'])} findings")
-    elif args.command == "web":
-        serve(workspace, port=args.port)
     elif args.command == "score":
         print(json.dumps(_data(workspace)["leaderboard"], indent=2))
     elif args.command in ("judge", "rubric"):

@@ -18,7 +18,7 @@ This is an **MVP**, not a security certification, production trade gate or autom
 | Feature | Status |
 | --- | --- |
 | Local Git repository snapshot, commit SHA, language fingerprint, exclusion manifest | Implemented |
-| Generic audit prompt, hotpath focus, read-only navigation | Implemented |
+| Generic audit prompt with weighted review criteria and custom focus, read-only navigation | Implemented |
 | BYOK multi-provider model orchestration via LiteLLM | Implemented (credentials required) |
 | Independent conversations, bounded parallelism and tool steps | Implemented |
 | JSON reports, manual import from coding agents/VS Code | Implemented |
@@ -117,11 +117,11 @@ All finding paths must refer to approved snapshot files. Missing / malformed man
 ## Adjudicate, rank and compare features
 
 ```bash
-reporeview web --workspace ./arenas/project-2026
+reporeview web --workspace ./arenas/project-2026 --models ./models.json
 # Open http://127.0.0.1:8765
 ```
 
-The browser presents reports, golden-feature proposals, per-finding decisions and scoring rubrics. Imported reports can also be added directly through the dashboard. Scores persist under `judgments/`.
+The dashboard can also be started without an arena using `reporeview web --models ./models.json`; open an existing workspace or create one from a clean local Git checkout in the browser. New arenas provide nine review priorities on a 0-5 scale; zero omits a criterion, and custom criteria can be entered one per line. Relative paths entered in the panel are resolved from the directory where the CLI started the server. The panel can start provider audits, show per-model progress and partial failures, display/copy/download the generated prompt, import reports, adjudicate findings, set rubric scores and download the score JSON. Each audit requires a fresh confirmation before source fragments are sent to providers. Provider credentials remain in the environment of the local CLI process. `--models` is optional; without it, the manual review and import features remain available while provider audits are disabled. Scores persist under `judgments/`.
 
 CLI equivalents:
 
