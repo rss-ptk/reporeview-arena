@@ -107,7 +107,8 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 <div class="wizard-actions"><button type="button" class="wizard-back" data-wizard-back="1" data-i18n="wizardBack">Back</button><button type="button" class="primary wizard-next" data-wizard-next="1" data-i18n="wizardContinue">Continue</button></div>
 </section>
 <section class="wizard-panel" id="wizard-panel-2" data-wizard-panel="2" aria-labelledby="wizard-heading-2" hidden>
-<div><div class="eyebrow" data-i18n="wizardStepReports">Collect reports</div><h2 id="wizard-heading-2" tabindex="-1" data-i18n="runAudit">Run an audit</h2></div>
+<div class="row"><div><div class="eyebrow" data-i18n="wizardStepReports">Collect reports</div><h2 id="wizard-heading-2" tabindex="-1" data-i18n="runAudit">Run an audit</h2></div><button id="new-review-button" type="button" aria-describedby="new-review-help" data-i18n="newReview" onclick="prepareNewReview()" disabled>New review</button></div>
+<p id="new-review-help" class="field-description" data-i18n="newReviewHelp">Set up a fresh review with the default priorities. This review will remain in history.</p>
 <p class="muted" data-i18n="wizardReportsIntro">Run selected providers or import a report produced elsewhere. Provider audits require fresh consent.</p>
 <section class="grid">
 <div class="panel"><h3 data-i18n="runAudit">Run an audit</h3><p class="muted" data-i18n="auditDisclosure">Selected providers receive source fragments from the frozen snapshot. Review the snapshot before authorizing a run.</p><fieldset id="contestants-fieldset" class="contestants" aria-describedby="contestants-description contestants-count models-message"><legend data-i18n="contestantsToAudit">Contestants to audit</legend><p id="contestants-description" class="field-description" data-i18n="contestantsDescription">Only enabled models from models.json are listed. Contestants that already have a report are locked, so existing results are never overwritten.</p><div class="contestant-tools"><button type="button" id="contestants-select-all" data-i18n="selectAllContestants" onclick="setAllContestants(true)" disabled>Select all</button><button type="button" id="contestants-clear" data-i18n="clearContestants" onclick="setAllContestants(false)" disabled>Clear selection</button><span id="contestants-count" class="meta" role="status"></span></div><div id="run-models"></div><div id="models-message" class="meta"></div></fieldset><div class="formrow"><div><label for="concurrency" data-i18n="concurrency">Concurrency</label><input type="number" id="concurrency" min="1" max="16" value="2"></div><div><label for="max-steps" data-i18n="maxSteps">Max steps</label><input type="number" id="max-steps" min="1" value="35"></div><div><label for="retries" data-i18n="retries">Retries</label><input type="number" id="retries" min="0" max="5" value="2"></div><div><label for="retry-delay" data-i18n="retryDelay">Retry delay (s)</label><input type="number" id="retry-delay" min="0" max="60" step="0.5" value="5"></div></div><label class="model-choice"><input id="confirm-send-code" type="checkbox"><span data-i18n="authorizeCodeSending">I authorize sending approved source fragments to the selected providers for this run.</span></label><button id="run-button" class="primary" data-i18n="startAudit" onclick="startRun()">Start audit</button><div id="run-message" role="status"></div><div id="job-details"></div></div>
@@ -221,6 +222,9 @@ const translations = {
     creatingReviewStatus: "Creating a new review. Please wait\u2026",
     reviewCreated: "Review created and selected",
     reviewOpened: "Review opened",
+    newReview: "New review",
+    newReviewHelp: "Set up a fresh review with the default priorities. This review will remain in history.",
+    reviewShort: "Review {id}",
     openOrCreateArena: "Continue a review or start a new one",
     activeReview: "Active review",
     noArenaSelected: "No review loaded",
@@ -350,12 +354,12 @@ const translations = {
     findingsAdjudication: "Findings & adjudication",
     chooseModels: "Choose one or more contestants to audit.",
     contestantsToAudit: "Contestants to audit",
-    contestantsDescription: "Only enabled models from models.json are listed. Contestants that already have a report are locked, so existing results are never overwritten.",
+    contestantsDescription: "Only enabled models from models.json are listed. A report in this review locks that model; reports in other reviews do not. Create a new review to run the same model again.",
     selectAllContestants: "Select all",
     clearContestants: "Clear selection",
     contestantsSelected: "Selected: {selected} of {available}",
-    contestantHasReport: "Report exists",
-    noRunnableContestants: "Every configured contestant already has a report; there is nothing left to run in this arena.",
+    contestantHasReport: "Report in this review",
+    noRunnableContestants: "Every enabled model already has a report in this review. Start a new review to run them again.",
     selectAtLeastOneContestant: "Select at least one contestant to audit.",
     status_queued: "queued",
     status_running: "running",
@@ -469,6 +473,9 @@ const translations = {
     creatingReviewStatus: "Criando uma nova revis\u00e3o. Aguarde\u2026",
     reviewCreated: "Revis\u00e3o criada e selecionada",
     reviewOpened: "Revis\u00e3o aberta",
+    newReview: "Nova revis\u00e3o",
+    newReviewHelp: "Configure uma nova revis\u00e3o com as prioridades padr\u00e3o. Esta revis\u00e3o continuar\u00e1 no hist\u00f3rico.",
+    reviewShort: "Revis\u00e3o {id}",
     openOrCreateArena: "Continuar uma revisão ou começar outra",
     activeReview: "Revisão ativa",
     noArenaSelected: "Nenhuma revisão carregada",
@@ -598,12 +605,12 @@ const translations = {
     findingsAdjudication: "Achados e validação",
     chooseModels: "Escolha um ou mais modelos participantes para auditar.",
     contestantsToAudit: "Modelos participantes para auditar",
-    contestantsDescription: "Somente modelos habilitados em models.json aparecem aqui. Modelos que já têm relatório ficam bloqueados, para que os resultados existentes nunca sejam sobrescritos.",
+    contestantsDescription: "Somente modelos habilitados em models.json aparecem aqui. Um relatório nesta revisão bloqueia o modelo; relatórios de outras revisões não bloqueiam. Crie uma nova revisão para usar o mesmo modelo novamente.",
     selectAllContestants: "Selecionar todos",
     clearContestants: "Limpar seleção",
     contestantsSelected: "Selecionados: {selected} de {available}",
-    contestantHasReport: "Relatório existente",
-    noRunnableContestants: "Todos os modelos configurados já têm relatório; não há nada para executar nesta arena.",
+    contestantHasReport: "Relatório nesta revisão",
+    noRunnableContestants: "Todos os modelos habilitados já têm relatório nesta revisão. Inicie uma nova revisão para usá-los novamente.",
     selectAtLeastOneContestant: "Selecione ao menos um modelo participante para auditar.",
     status_queued: "na fila",
     status_running: "em andamento",
@@ -964,6 +971,10 @@ function updateWorkspaceActions() {
     reviewCreationInProgress || !dashboardStatus.repository_available || selectedPath !== savedPath;
   document.getElementById("open-review-button").disabled =
     !document.getElementById("review-history").value;
+  document.getElementById("new-review-button").disabled =
+    reviewCreationInProgress || !dashboardStatus.repository_available ||
+    selectedPath !== savedPath || !dashboardStatus.workspace ||
+    jobIsActive(dashboardStatus.job);
   renderWizard();
 }
 
@@ -993,9 +1004,14 @@ async function renderReviewHistory() {
 
 function updateActiveReviewLabel() {
   const label = document.getElementById("workspace-active");
-  label.textContent = state.manifest
-    ? state.manifest.repo_name + " | " + state.manifest.commit.slice(0, 12)
-    : t("noArenaSelected");
+  if (!state.manifest) {
+    label.textContent = t("noArenaSelected");
+    return;
+  }
+  const reviewId = state.manifest.review_id || dashboardStatus.review_id;
+  const parts = [state.manifest.repo_name, state.manifest.commit.slice(0, 12)];
+  if (reviewId) parts.push(t("reviewShort", {id: reviewId.slice(0, 8)}));
+  label.textContent = parts.join(" | ");
 }
 
 async function reload() {
@@ -1536,6 +1552,24 @@ async function openReview() {
     setRepositoryError("workspace-message", error);
   }
 }
+// BEGIN new-review
+function resetReviewFocusControls() {
+  document.querySelectorAll(".priority-slider").forEach(function (slider) {
+    slider.value = slider.defaultValue;
+    updatePriorityLabel(slider);
+  });
+  document.getElementById("focus-custom-text").value = "";
+}
+function prepareNewReview() {
+  const selectedPath = document.getElementById("repo-path").value.trim();
+  if (reviewCreationInProgress || jobIsActive(dashboardStatus.job) ||
+      !dashboardStatus.repository_available || !dashboardStatus.workspace ||
+      selectedPath !== (dashboardStatus.repository_path || "")) return;
+  resetReviewFocusControls();
+  setMessage("workspace-message", "");
+  goToWizardStep(1);
+}
+// END new-review
 async function createReview() {
   if (reviewCreationInProgress) return;
   const button = document.getElementById("create-review-button");

@@ -280,6 +280,88 @@ def test_managed_reviews_are_unique_listed_by_repository_and_opened_by_id(dashbo
     assert error["error"]
 
 
+def test_reports_are_scoped_to_each_review_and_same_model_can_run_again(
+    dashboard, tmp_path, monkeypatch,
+):
+    server, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    _request(
+        base_url, "/api/settings/repository", token=token, origin=base_url,
+        payload={"path": str(repo)},
+    )
+    status, first = _request(
+        base_url, "/api/reviews", token=token, origin=base_url,
+        payload={"review_focus": {
+            "criteria": {"critical_flows": 5}, "custom_text": "Review A",
+        }},
+    )
+    assert status == 201
+    first_id = first["review_id"]
+
+    report = {
+        "summary": "Review A report",
+        "golden_feature": {"name": "Feature", "mechanism": ""},
+        "findings": [],
+    }
+    status, imported = _request(
+        base_url, "/api/import", token=token, origin=base_url,
+        payload={"model": "mock", "content": json.dumps(report)},
+    )
+    assert status == 200
+    assert imported["ok"] is True
+
+    config = tmp_path / "models.json"
+    config.write_text(json.dumps({"models": [
+        {"id": "mock", "model": "test/mock"},
+    ]}), encoding="utf-8")
+    server.models_path = config
+
+    async def audit_many(path, models, **kwargs):
+        return [{"model": model["id"], "findings": 0} for model in models]
+
+    monkeypatch.setattr(app, "audit_many", audit_many)
+
+    status, second = _request(
+        base_url, "/api/reviews", token=token, origin=base_url,
+        payload={"review_focus": {
+            "criteria": {"security": 5}, "custom_text": "Review B",
+        }},
+    )
+    assert status == 201
+    second_id = second["review_id"]
+    assert second_id != first_id
+    second_path = server.data_directory / "reviews" / second_id
+    assert "Review B" in (second_path / "prompt.md").read_text(encoding="utf-8")
+
+    status, active = _request(base_url, "/api/status")
+    assert status == 200
+    assert active["review_id"] == second_id
+    status, second_data = _request(base_url, "/api/data")
+    assert status == 200
+    assert second_data["reports"] == {}
+
+    status, started = _request(
+        base_url, "/api/run", token=token, origin=base_url,
+        payload={"models": ["mock"], "confirm_send_code": True},
+    )
+    assert status == 202
+    assert started["job"]["workspace"] == active["workspace"]
+
+    status, opened = _request(
+        base_url, "/api/reviews/open", token=token, origin=base_url,
+        payload={"id": first_id},
+    )
+    assert status == 200
+    assert opened["review_id"] == first_id
+    status, first_data = _request(base_url, "/api/data")
+    assert status == 200
+    assert first_data["reports"]["mock"]["summary"] == "Review A report"
+
+    status, history = _request(base_url, "/api/reviews")
+    assert status == 200
+    assert {review["id"] for review in history["reviews"]} == {first_id, second_id}
+
+
 def test_startup_selects_the_latest_managed_review_for_the_saved_repository(
     dashboard, tmp_path,
 ):
@@ -347,6 +429,13 @@ def test_managed_review_creation_rejects_dirty_repository(dashboard, tmp_path):
     assert "review_focus" in error["error"]
     assert not (tmp_path / "chosen-by-browser").exists()
 
+    status, first = _request(
+        base_url, "/api/reviews", token=token, origin=base_url,
+        payload={"review_focus": {"criteria": {}, "custom_text": "Existing review"}},
+    )
+    assert status == 201
+    first_id = first["review_id"]
+
     (repo / "main.py").write_text("changed\n", encoding="utf-8")
 
     status, error = _request(
@@ -356,6 +445,12 @@ def test_managed_review_creation_rejects_dirty_repository(dashboard, tmp_path):
 
     assert status == 400
     assert "dirty" in error["error"].lower()
+    status, active = _request(base_url, "/api/status")
+    assert status == 200
+    assert active["review_id"] == first_id
+    status, history = _request(base_url, "/api/reviews")
+    assert status == 200
+    assert [review["id"] for review in history["reviews"]] == [first_id]
 
 
 def test_review_focus_composition_omits_zero_values_and_appends_custom_criteria():
@@ -768,13 +863,18 @@ NEW_TRANSLATION_KEYS = {
     "wizardRepoGate", "wizardReviewGate", "wizardReportsGate", "wizardAuditRunning",
     "wizardFindingsGate", "wizardRubricGate", "wizardRefreshFailed",
     "wizardReviewIntro", "wizardReportsIntro", "wizardAdjudicationIntro",
-    "wizardResultsIntro", "partialScoreboard",
+    "wizardResultsIntro", "partialScoreboard", "newReview", "newReviewHelp", "reviewShort",
 }
 SELECTION_BLOCK = re.compile(
     r"// BEGIN contestant-selection[^\n]*\n(.*?)// END contestant-selection", re.S,
 )
 WIZARD_BLOCK = re.compile(
     r"// BEGIN wizard-state[^\n]*\n(.*?)// END wizard-state", re.S,
+)
+
+
+NEW_REVIEW_BLOCK = re.compile(
+    r"// BEGIN new-review[^\n]*\n(.*?)// END new-review", re.S,
 )
 
 
@@ -844,6 +944,8 @@ def test_control_page_exposes_accessible_five_step_wizard(dashboard):
         r'data-wizard-panel="2"(.*?)data-wizard-panel="3"', page, re.S,
     )
     assert reports_step and 'id="importmodel"' in reports_step.group(1)
+    assert 'id="new-review-button"' in reports_step.group(1)
+    assert 'aria-describedby="new-review-help"' in reports_step.group(1)
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
@@ -995,6 +1097,62 @@ def test_contestant_selection_reconciliation(previous, models, reports, runnable
     )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {"runnable": runnable, "selected": selected}
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_new_review_resets_focus_and_refuses_to_start_during_an_audit():
+    block = NEW_REVIEW_BLOCK.search(app.PAGE)
+    assert block, "new-review block is missing"
+    script = block.group(1) + """
+const sliders = [
+  {value: "1", defaultValue: "5", dataset: {priorityId: "security"}},
+  {value: "0", defaultValue: "3", dataset: {priorityId: "architecture"}},
+];
+const customText = {value: "old criteria"};
+const repositoryInput = {value: "C:/repo"};
+const elements = {"focus-custom-text": customText, "repo-path": repositoryInput};
+globalThis.document = {
+  querySelectorAll: () => sliders,
+  getElementById: (id) => elements[id],
+};
+function updatePriorityLabel(slider) { slider.label = slider.value; }
+function jobIsActive(job) { return !!job && ["queued", "running"].includes(job.status); }
+function setMessage() {}
+let visitedStep = null;
+function goToWizardStep(index) { visitedStep = index; }
+let reviewCreationInProgress = false;
+let dashboardStatus = {
+  repository_available: true,
+  repository_path: "C:/repo",
+  workspace: "C:/review-a",
+  job: null,
+};
+function attempt() {
+  sliders[0].value = "1";
+  sliders[1].value = "0";
+  customText.value = "old criteria";
+  visitedStep = null;
+  prepareNewReview();
+  return {values: sliders.map((slider) => slider.value), custom: customText.value, step: visitedStep};
+}
+const ready = attempt();
+dashboardStatus.job = {status: "running"};
+const running = attempt();
+dashboardStatus.job = null;
+dashboardStatus.repository_available = false;
+const unavailable = attempt();
+console.log(JSON.stringify({ready, running, unavailable}));
+"""
+    result = subprocess.run(
+        [NODE, "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "ready": {"values": ["5", "3"], "custom": "", "step": 1},
+        "running": {"values": ["1", "0"], "custom": "old criteria", "step": None},
+        "unavailable": {"values": ["1", "0"], "custom": "old criteria", "step": None},
+    }
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
