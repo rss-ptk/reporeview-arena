@@ -1,13 +1,13 @@
 {
   "models": [
-    {"id": "gpt", "model": "openai/REPLACE_WITH_AVAILABLE_MODEL"},
-    {"id": "claude", "model": "anthropic/REPLACE_WITH_AVAILABLE_MODEL"},
-    {"id": "gemini", "model": "gemini/REPLACE_WITH_AVAILABLE_MODEL"},
-    {"id": "mistral", "model": "mistral/REPLACE_WITH_AVAILABLE_MODEL"},
-    {"id": "grok", "model": "xai/REPLACE_WITH_AVAILABLE_MODEL"},
-    {"id": "glm", "model": "openrouter/REPLACE_WITH_AVAILABLE_MODEL"},
-    {"id": "qwen", "model": "openrouter/REPLACE_WITH_AVAILABLE_MODEL"},
-    {"id": "kimi", "model": "openrouter/REPLACE_WITH_AVAILABLE_MODEL"},
-    {"id": "mimo", "model": "openrouter/REPLACE_WITH_AVAILABLE_MODEL"}
+    {"id": "gpt", "model": "openai/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null},
+    {"id": "claude", "model": "anthropic/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null},
+    {"id": "gemini", "model": "gemini/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null},
+    {"id": "mistral", "model": "mistral/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null},
+    {"id": "grok", "model": "xai/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null},
+    {"id": "glm", "model": "openrouter/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null},
+    {"id": "qwen", "model": "openrouter/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null},
+    {"id": "kimi", "model": "openrouter/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null},
+    {"id": "mimo", "model": "openrouter/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null}
   ]
 }

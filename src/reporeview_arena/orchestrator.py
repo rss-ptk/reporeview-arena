@@ -39,8 +39,6 @@ TOOLS = [
     }},
 ]
 
-DEFAULT_MAX_TOKENS = 16_384
-
 
 def model_slug(name: str) -> str:
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", name):
@@ -149,9 +147,12 @@ def _report_error(exc: Exception, response_text: str, finish_reason: str | None,
     # fields (an invalid file path or severity could contain arbitrary output).
     validation_error = str(exc)
     if finish_reason == "length":
-        limit = f"{max_tokens:,}" if isinstance(max_tokens, int) else str(max_tokens)
-        return (f"Model report was truncated at the output token limit (max_tokens={limit}). "
-                "Increase this model's max_tokens in models.json or request a shorter report.")
+        if type(max_tokens) is int:
+            return (f"Model report was truncated at its configured output limit "
+                    f"(max_tokens={max_tokens:,}). Increase this model's max_tokens "
+                    "in models.json or request a shorter report.")
+        return ("Provider truncated the model report at its output limit. Set a per-model "
+                "max_tokens value in models.json or request a shorter report.")
     if not response_text.strip():
         return "Model returned an empty report. Check the output token budget and model compatibility."
     if validation_error.startswith(("No JSON object", "Report must contain valid JSON",
@@ -203,7 +204,7 @@ async def audit_one(
     started = time.monotonic()
     response_text = ""
     finish_reason = None
-    max_tokens = model.get("max_tokens", DEFAULT_MAX_TOKENS)
+    max_tokens = model.get("max_tokens")
     base_messages = list(messages)
     batches: list[list[dict[str, Any]]] = []
     for step in range(max_steps + 1):
@@ -218,10 +219,11 @@ async def audit_one(
             messages.append({"role": "user", "content": "Tool budget exhausted. Produce your complete single JSON report now with only verified citations; list unexamined areas in limitations. No more tools."})
         opts: dict[str, Any] = {
             "model": model["model"], "messages": messages, "timeout": timeout,
-            "max_tokens": max_tokens,
             # Arena owns retries; disable SDK retries to keep the budget bounded.
             "num_retries": 0, "max_retries": 0,
         }
+        if max_tokens is not None:
+            opts["max_tokens"] = max_tokens
         if model.get("api_base"):
             opts["api_base"] = model["api_base"]
         if not final:
