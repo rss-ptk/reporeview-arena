@@ -50,6 +50,7 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 @media(max-width:460px){.focus-criteria-grid{grid-template-columns:1fr}}
 @media(min-width:801px) and (max-width:1100px){.help-wrap.tip-right .tooltip-content{left:0;right:auto}}
 @media(max-width:800px){.tooltip-content{width:min(220px,calc(100vw - 48px))}.help-wrap.tip-right .tooltip-content{left:0;right:auto}}
+.contestants{min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px;margin:14px 0 10px}.contestants legend{padding:0 6px;font-weight:700}.contestants:disabled{opacity:.65}.contestants .model-choice{font-size:13px;color:var(--ink)}.model-choice.is-locked{opacity:.7}.contestant-tools{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:10px 0 6px}.contestant-tools button{padding:3px 10px;font-size:12px}
 </style></head><body><main>
 <header><div><div class="eyebrow" data-i18n="independentAudits">Independent LLM code audits</div><h1>RepoReview <span class="gold">Arena</span></h1><div id="project" class="meta" data-i18n="loadingCompetition">Loading competition…</div></div><div class="header-actions"><span id="language-label" class="language-label" data-i18n="languageLabel">Language</span><div id="language-toggle" class="language-toggle" role="group" aria-labelledby="language-label"><button type="button" class="language-option" data-language="en" aria-pressed="true">EN</button><button type="button" class="language-option" data-language="pt-BR" aria-pressed="false">PT-BR</button></div><button data-i18n="refresh" onclick="reload()">Refresh</button><button data-i18n="exportScorecard" onclick="exportJson()">Export scorecard</button></div></header>
 <section class="panel" id="workspace-panel">
@@ -76,7 +77,7 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 <section><div class="eyebrow" data-i18n="leaderboard">Leaderboard</div><h2 data-i18n="verifiedResultsOnly">Verified results only</h2><div id="summary" class="cards"></div></section>
 <section class="panel"><div class="row"><h2 data-i18n="scoreboard">Scoreboard</h2><button data-i18n="downloadScoreJson" onclick="downloadScore()">Download score JSON</button></div><div style="overflow:auto"><table id="board"></table></div><p class="muted" data-i18n="scoreboardExplanation">Unreviewed findings score zero. Confirmed issues score by reviewed severity. Penalties apply for false positives.</p></section>
 <section><div class="eyebrow" data-i18n="valueProposals">Value proposals</div><h2 data-i18n="goldenFeatureContenders">Golden feature contenders</h2><div id="goldpodium" class="cards"></div></section>
-<section class="grid"><div class="panel"><h2 data-i18n="runAudit">Run an audit</h2><p class="muted" data-i18n="auditDisclosure">Selected providers receive source fragments from the frozen snapshot. Review the snapshot before authorizing a run.</p><div id="run-models"></div><div id="models-message" class="meta"></div><div class="formrow"><div><label for="concurrency" data-i18n="concurrency">Concurrency</label><input type="number" id="concurrency" min="1" max="16" value="2"></div><div><label for="max-steps" data-i18n="maxSteps">Max steps</label><input type="number" id="max-steps" min="1" value="35"></div><div><label for="retries" data-i18n="retries">Retries</label><input type="number" id="retries" min="0" max="5" value="2"></div><div><label for="retry-delay" data-i18n="retryDelay">Retry delay (s)</label><input type="number" id="retry-delay" min="0" max="60" step="0.5" value="5"></div></div><label class="model-choice"><input id="confirm-send-code" type="checkbox"><span data-i18n="authorizeCodeSending">I authorize sending approved source fragments to the selected providers for this run.</span></label><button id="run-button" class="primary" data-i18n="startAudit" onclick="startRun()">Start audit</button><div id="run-message" role="status"></div><div id="job-details"></div></div>
+<section class="grid"><div class="panel"><h2 data-i18n="runAudit">Run an audit</h2><p class="muted" data-i18n="auditDisclosure">Selected providers receive source fragments from the frozen snapshot. Review the snapshot before authorizing a run.</p><fieldset id="contestants-fieldset" class="contestants" aria-describedby="contestants-description contestants-count models-message"><legend data-i18n="contestantsToAudit">Contestants to audit</legend><p id="contestants-description" class="field-description" data-i18n="contestantsDescription">Only enabled models from models.json are listed. Contestants that already have a report are locked, so existing results are never overwritten.</p><div class="contestant-tools"><button type="button" id="contestants-select-all" data-i18n="selectAllContestants" onclick="setAllContestants(true)" disabled>Select all</button><button type="button" id="contestants-clear" data-i18n="clearContestants" onclick="setAllContestants(false)" disabled>Clear selection</button><span id="contestants-count" class="meta" role="status"></span></div><div id="run-models"></div><div id="models-message" class="meta"></div></fieldset><div class="formrow"><div><label for="concurrency" data-i18n="concurrency">Concurrency</label><input type="number" id="concurrency" min="1" max="16" value="2"></div><div><label for="max-steps" data-i18n="maxSteps">Max steps</label><input type="number" id="max-steps" min="1" value="35"></div><div><label for="retries" data-i18n="retries">Retries</label><input type="number" id="retries" min="0" max="5" value="2"></div><div><label for="retry-delay" data-i18n="retryDelay">Retry delay (s)</label><input type="number" id="retry-delay" min="0" max="60" step="0.5" value="5"></div></div><label class="model-choice"><input id="confirm-send-code" type="checkbox"><span data-i18n="authorizeCodeSending">I authorize sending approved source fragments to the selected providers for this run.</span></label><button id="run-button" class="primary" data-i18n="startAudit" onclick="startRun()">Start audit</button><div id="run-message" role="status"></div><div id="job-details"></div></div>
 <div class="panel"><div class="row"><h2 data-i18n="generatedReviewPrompt">Generated review prompt</h2><button data-i18n="showPrompt" onclick="loadPrompt()">Show prompt</button></div><p class="muted" data-i18n="promptIntro">Copy this prompt into an IDE or another coding agent.</p><div id="prompt-actions" hidden><button data-i18n="copy" onclick="copyPrompt()">Copy</button> <button data-i18n="downloadPrompt" onclick="downloadPrompt()">Download prompt</button></div><pre id="prompt-text" class="promptbox" hidden></pre><div id="prompt-message" role="status"></div></div></section>
 <section class="grid"><div><div class="panel"><h2 data-i18n="reviewContestant">Review a contestant</h2><div class="formrow"><div><label for="model" data-i18n="model">Model</label><select id="model" onchange="showReport()"></select></div></div><p id="abstract" class="muted"></p><h3 data-i18n="goldenFeature">Golden feature</h3><div id="gold"></div><h3 style="margin-top:22px" data-i18n="rubricScores">Rubric scores</h3><div class="formrow"><div><label for="improvements" data-i18n="improvements15">Improvements /15</label><input type="number" id="improvements" min="0" max="15"></div><div><label for="goldscore" data-i18n="gold20">Gold /20</label><input type="number" id="goldscore" min="0" max="20"></div><div><label for="rigor" data-i18n="rigor5">Rigor /5</label><input type="number" id="rigor" min="0" max="5"></div><button class="primary" data-i18n="saveScores" onclick="saveRubric()">Save scores</button></div></div>
 <div class="panel" style="margin-top:20px"><h2 data-i18n="importManualReport">Import manual report</h2><p class="muted" data-i18n="importExplanation">JSON report produced in any IDE or imported from another system. The model ID may contain only letters, digits, underscores and hyphens.</p><div class="formrow"><input id="importmodel" data-i18n-placeholder="modelIdPlaceholder" data-i18n-aria-label="modelIdLabel" placeholder="model-id" aria-label="Model ID"><input type="file" id="importfile" accept=".json,.md,.txt" data-i18n-aria-label="reportFile"><button data-i18n="import" onclick="importReport()">Import</button></div><div id="message"></div></div></div>
@@ -94,6 +95,7 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 let state = {};
 let dashboardStatus = {};
 let pollTimer = null;
+let contestantSelection = null;
 let folderPickerTarget = null;
 let folderPickerData = null;
 let folderRequestId = 0;
@@ -230,8 +232,15 @@ const translations = {
     reportFile: "Report file",
     import: "Import",
     findingsAdjudication: "Findings & adjudication",
-    chooseModels: "Choose one or more enabled models.",
-    reportAlreadyExists: " - report already exists",
+    chooseModels: "Choose one or more contestants to audit.",
+    contestantsToAudit: "Contestants to audit",
+    contestantsDescription: "Only enabled models from models.json are listed. Contestants that already have a report are locked, so existing results are never overwritten.",
+    selectAllContestants: "Select all",
+    clearContestants: "Clear selection",
+    contestantsSelected: "Selected: {selected} of {available}",
+    contestantHasReport: "Report exists",
+    noRunnableContestants: "Every configured contestant already has a report; there is nothing left to run in this arena.",
+    selectAtLeastOneContestant: "Select at least one contestant to audit.",
     status_queued: "queued",
     status_running: "running",
     status_succeeded: "succeeded",
@@ -411,8 +420,15 @@ const translations = {
     reportFile: "Arquivo do relatório",
     import: "Importar",
     findingsAdjudication: "Achados e validação",
-    chooseModels: "Escolha um ou mais modelos habilitados.",
-    reportAlreadyExists: " - já existe um relatório",
+    chooseModels: "Escolha um ou mais modelos participantes para auditar.",
+    contestantsToAudit: "Modelos participantes para auditar",
+    contestantsDescription: "Somente modelos habilitados em models.json aparecem aqui. Modelos que já têm relatório ficam bloqueados, para que os resultados existentes nunca sejam sobrescritos.",
+    selectAllContestants: "Selecionar todos",
+    clearContestants: "Limpar seleção",
+    contestantsSelected: "Selecionados: {selected} de {available}",
+    contestantHasReport: "Relatório existente",
+    noRunnableContestants: "Todos os modelos configurados já têm relatório; não há nada para executar nesta arena.",
+    selectAtLeastOneContestant: "Selecione ao menos um modelo participante para auditar.",
     status_queued: "na fila",
     status_running: "em andamento",
     status_succeeded: "concluída",
@@ -518,9 +534,11 @@ function evidenceText(status) {
 
 function setLocalizedMessage(id, key, values) {
   const element = document.getElementById(id);
+  const text = t(key, values);
   element.dataset.translationKey = key;
   element.dataset.translationValues = JSON.stringify(values || {});
-  element.textContent = t(key, values);
+  // Skip identical writes so the polling re-render does not re-announce live regions.
+  if (element.textContent !== text) element.textContent = text;
 }
 
 function refreshLocalizedMessages() {
@@ -741,6 +759,7 @@ async function reload() {
       if (previousModel && state.reports[previousModel]) models.value = previousModel;
       renderBoard();
       showReport();
+      if (previousWorkspace !== dashboardStatus.workspace) contestantSelection = null;
       renderModels();
     } else {
       state = { reports: {}, judgments: {}, leaderboard: [] };
@@ -750,9 +769,11 @@ async function reload() {
       clear("board");
       clear("goldpodium");
       clear("run-models");
+      contestantSelection = null;
       clear("findings");
       showReport();
       setMessage("models-message", "");
+      setMessage("contestants-count", "");
     }
     renderJob(dashboardStatus.job);
     clearTimeout(pollTimer);
@@ -764,38 +785,91 @@ async function reload() {
   }
 }
 
-function renderModels() {
-  const root = document.getElementById("run-models");
-  const preserveSelection = root.dataset.initialized === "true";
-  const selected = new Set(Array.from(
-    root.querySelectorAll("input:checked:not(:disabled)")
-  ).map(function (checkbox) { return checkbox.value; }));
-  root.replaceChildren();
+// BEGIN contestant-selection (pure helpers, unit-tested under Node without a DOM)
+function hasContestantReport(reports, id) {
+  return Object.prototype.hasOwnProperty.call(reports, id);
+}
+function reconcileContestantSelection(previous, models, reports) {
+  const runnable = models
+    .map(function (model) { return model.id; })
+    .filter(function (id) { return !hasContestantReport(reports, id); });
+  const selected = previous === null
+    ? runnable
+    : runnable.filter(function (id) { return previous.includes(id); });
+  return { runnable: runnable, selected: selected };
+}
+// END contestant-selection
+function jobIsActive(job) {
+  return !!job && ["queued", "running"].includes(job.status);
+}
+function setContestantChecked(id, checked) {
+  const next = new Set(contestantSelection || []);
+  if (checked) next.add(id); else next.delete(id);
+  contestantSelection = (dashboardStatus.models || [])
+    .map(function (model) { return model.id; })
+    .filter(function (modelId) { return next.has(modelId); });
+  renderContestantSummary();
+}
+function setAllContestants(checked) {
+  const plan = reconcileContestantSelection(
+    null, dashboardStatus.models || [], state.reports || {}
+  );
+  contestantSelection = checked ? plan.runnable : [];
+  renderModels();
+}
+function renderContestantSummary() {
   const models = dashboardStatus.models || [];
-  const reports = state.reports || {};
+  const plan = reconcileContestantSelection(
+    contestantSelection, models, state.reports || {}
+  );
+  const locked = jobIsActive(dashboardStatus.job) || !plan.runnable.length;
   if (dashboardStatus.models_error) {
     setMessage("models-message", dashboardStatus.models_error);
+  } else if (models.length && !plan.runnable.length) {
+    setLocalizedMessage("models-message", "noRunnableContestants");
   } else {
     setLocalizedMessage("models-message", "chooseModels");
   }
+  if (models.length) {
+    setLocalizedMessage("contestants-count", "contestantsSelected", {
+      selected: plan.selected.length, available: plan.runnable.length,
+    });
+  } else {
+    setMessage("contestants-count", "");
+  }
+  document.getElementById("contestants-select-all").disabled = locked;
+  document.getElementById("contestants-clear").disabled = locked;
+}
+function renderModels() {
+  const root = document.getElementById("run-models");
+  const models = dashboardStatus.models || [];
+  const reports = state.reports || {};
+  const plan = reconcileContestantSelection(contestantSelection, models, reports);
+  contestantSelection = plan.selected;
+  const chosen = new Set(plan.selected);
+  root.replaceChildren();
   models.forEach(function (model) {
-    const row = node("label", "model-choice");
+    const locked = hasContestantReport(reports, model.id);
+    const row = node("label", locked ? "model-choice is-locked" : "model-choice");
     const checkbox = node("input");
     checkbox.type = "checkbox";
     checkbox.value = model.id;
-    checkbox.checked = preserveSelection ? selected.has(model.id) : !reports[model.id];
-    checkbox.disabled = !!reports[model.id];
-    const label = node("span", "", model.id +
-      (reports[model.id] ? t("reportAlreadyExists") : ""));
+    checkbox.checked = chosen.has(model.id);
+    checkbox.disabled = locked;
+    checkbox.addEventListener("change", function () {
+      setContestantChecked(model.id, checkbox.checked);
+    });
+    const label = node("span", "", model.id);
     label.dataset.modelId = model.id;
-    label.dataset.reportExists = reports[model.id] ? "true" : "false";
+    label.dataset.reportExists = locked ? "true" : "false";
     row.append(checkbox, label);
+    if (locked) row.append(localizedNode("span", "pill", "contestantHasReport"));
     root.append(row);
   });
-  root.dataset.initialized = "true";
-  document.getElementById("run-button").disabled =
-    !models.length || (dashboardStatus.job &&
-      ["queued", "running"].includes(dashboardStatus.job.status));
+  const active = jobIsActive(dashboardStatus.job);
+  document.getElementById("contestants-fieldset").disabled = active;
+  document.getElementById("run-button").disabled = !models.length || active;
+  renderContestantSummary();
 }
 function renderJob(job) {
   const root = clear("job-details");
@@ -997,9 +1071,11 @@ async function initializeWorkspace() {
   }
 }
 async function startRun() {
-  const selected = Array.from(
-    document.querySelectorAll("#run-models input:checked:not(:disabled)")
-  ).map(function (checkbox) { return checkbox.value; });
+  const selected = contestantSelection || [];
+  if (!selected.length) {
+    setLocalizedMessage("run-message", "selectAtLeastOneContestant");
+    return;
+  }
   try {
     const result = await api("/api/run", {
       models: selected,

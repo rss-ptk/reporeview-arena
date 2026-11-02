@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -510,3 +511,147 @@ def test_only_one_audit_can_run_at_a_time(dashboard, tmp_path, monkeypatch):
             break
         time.sleep(0.01)
     assert result["job"]["status"] == "succeeded"
+
+
+NODE = shutil.which("node")
+NEW_TRANSLATION_KEYS = {
+    "contestantsToAudit", "contestantsDescription", "selectAllContestants",
+    "clearContestants", "contestantsSelected", "contestantHasReport",
+    "noRunnableContestants", "selectAtLeastOneContestant",
+}
+SELECTION_BLOCK = re.compile(
+    r"// BEGIN contestant-selection[^\n]*\n(.*?)// END contestant-selection", re.S,
+)
+
+
+def _served_page(base_url: str) -> str:
+    with urlopen(base_url + "/", timeout=2) as response:
+        return response.read().decode()
+
+
+def _translation_keys(page: str) -> tuple[set[str], set[str]]:
+    block = re.search(
+        r"const translations = \{\n  en: \{(.*?)\n  \},\n  \"pt-BR\": \{(.*?)\n  \},\n\};",
+        page, re.S,
+    )
+    assert block, "translations object not found"
+    key = re.compile(r"^ {4}([A-Za-z0-9_]+):", re.M)
+    return set(key.findall(block.group(1))), set(key.findall(block.group(2)))
+
+
+def test_contestant_picker_is_a_labelled_checkbox_group(dashboard):
+    _, base_url, _ = dashboard
+    page = _served_page(base_url)
+
+    group = re.search(
+        r'<fieldset id="contestants-fieldset" class="contestants"[^>]*>(.*?)</fieldset>',
+        page, re.S,
+    )
+    assert group, "contestant picker fieldset is missing"
+    body = group.group(1)
+    assert '<legend data-i18n="contestantsToAudit">Contestants to audit</legend>' in body
+    assert 'id="contestants-select-all"' in body
+    assert 'id="contestants-clear"' in body
+    assert 'id="contestants-count" class="meta" role="status"' in body
+    assert 'id="run-models"' in body and 'id="models-message"' in body
+    assert ('aria-describedby="contestants-description contestants-count models-message"'
+            in group.group(0))
+    assert "Modelos participantes para auditar" in page
+    assert "reportAlreadyExists" not in page
+
+
+def test_dashboard_translations_stay_in_sync_and_cover_the_markup(dashboard):
+    _, base_url, _ = dashboard
+    page = _served_page(base_url)
+    english, portuguese = _translation_keys(page)
+
+    assert english == portuguese
+    assert NEW_TRANSLATION_KEYS <= english
+    used = set(re.findall(r'data-i18n(?:-[a-z-]+)?="([A-Za-z0-9_]+)"', page))
+    literal = set(re.findall(r'\bt\("([A-Za-z0-9_]+)"', page))
+    literal |= set(re.findall(r'setLocalizedMessage\("[^"]+",\s*"([A-Za-z0-9_]+)"', page))
+    # "verdict_" is a dynamic prefix (t("verdict_" + value)), not a key.
+    assert (used | {key for key in literal if not key.endswith("_")}) <= english
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+@pytest.mark.parametrize(
+    ("previous", "models", "reports", "runnable", "selected"),
+    [
+        # First render for an arena ticks every runnable contestant.
+        (None, ["a", "b", "c"], {"b": {}}, ["a", "c"], ["a", "c"]),
+        # A user's subset survives a re-render (poll, language toggle, refresh).
+        (["a"], ["a", "b", "c"], {}, ["a", "b", "c"], ["a"]),
+        # "Clear selection" ([]) must not fall back to the default.
+        ([], ["a", "b"], {}, ["a", "b"], []),
+        # A contestant that gained a report is pruned from the selection.
+        (["a", "b"], ["a", "b"], {"b": {}}, ["a"], ["a"]),
+        # A model added to models.json later starts unticked.
+        (["a"], ["a", "d"], {}, ["a", "d"], ["a"]),
+        # Valid ids that collide with Object.prototype members are not "locked".
+        (None, ["constructor", "toString"], {}, ["constructor", "toString"],
+         ["constructor", "toString"]),
+        (None, [], {}, [], []),
+    ],
+)
+def test_contestant_selection_reconciliation(previous, models, reports, runnable, selected):
+    block = SELECTION_BLOCK.search(app.PAGE)
+    assert block, "contestant-selection block is missing"
+    case = {"previous": previous, "models": [{"id": m} for m in models], "reports": reports}
+    script = (
+        block.group(1)
+        + f"\nconst c = {json.dumps(case)};\n"
+        + "console.log(JSON.stringify("
+        + "reconcileContestantSelection(c.previous, c.models, c.reports)));\n"
+    )
+    result = subprocess.run(
+        [NODE, "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"runnable": runnable, "selected": selected}
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_dashboard_script_is_syntactically_valid(dashboard, tmp_path):
+    _, base_url, _ = dashboard
+    script = re.search(r"</main><script>(.*)</script></body>", _served_page(base_url), re.S)
+    assert script, "dashboard script not found"
+    path = tmp_path / "dashboard.js"
+    path.write_text(script.group(1), encoding="utf-8")
+    result = subprocess.run(
+        [NODE, "--check", str(path)], capture_output=True, text=True,
+        encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("selection", [[], ["off"], ["ghost"], ["mock", "mock"], "mock", [1]])
+def test_run_rejects_invalid_contestant_selections(dashboard, tmp_path, monkeypatch, selection):
+    """The server stays the authority even though the client now guards an empty selection."""
+    _, base_url, token = dashboard
+    workspace = _workspace(tmp_path / "arena")
+    _request(base_url, "/api/workspace/open", token=token, origin=base_url,
+             payload={"path": str(workspace)})
+    config = tmp_path / "models.json"
+    config.write_text(json.dumps({"models": [
+        {"id": "mock", "model": "test/mock"},
+        {"id": "off", "model": "test/off", "enabled": False},
+    ]}), encoding="utf-8")
+    dashboard[0].models_path = config
+    called = False
+
+    async def audit_many(*args, **kwargs):
+        nonlocal called
+        called = True
+        return []
+
+    monkeypatch.setattr(app, "audit_many", audit_many)
+    status, error = _request(
+        base_url, "/api/run", token=token, origin=base_url,
+        payload={"models": selection, "confirm_send_code": True},
+    )
+
+    assert status == 400
+    assert error["error"]
+    assert not called
