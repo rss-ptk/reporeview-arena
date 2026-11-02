@@ -35,6 +35,21 @@ def _git(repo: Path, *args: str) -> str:
     return process.stdout.decode("utf-8", "replace").strip()
 
 
+def validate_repository_root(repo: Path) -> Path:
+    """Resolve a local Git checkout and reject paths below its root."""
+
+    repo = Path(repo).expanduser().resolve()
+    if not repo.is_dir():
+        raise ValueError("--repo must be an existing directory")
+    try:
+        root = Path(_git(repo, "rev-parse", "--show-toplevel")).resolve()
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        raise ValueError("--repo must be a valid Git repository") from None
+    if root != repo:
+        raise ValueError("Pass the Git repository root, not a subdirectory")
+    return repo
+
+
 def _allowed(path: Path) -> bool:
     if any(part.lower() in DENIED_PARTS for part in path.parts):
         return False
@@ -51,12 +66,7 @@ def _detect_languages(files: list[str]) -> list[str]:
 
 
 def snapshot_repo(repo: Path, destination: Path) -> dict[str, Any]:
-    repo = repo.resolve()
-    if not repo.is_dir():
-        raise ValueError("--repo must be an existing directory")
-    root = Path(_git(repo, "rev-parse", "--show-toplevel")).resolve()
-    if root != repo:
-        raise ValueError("Pass the Git repository root, not a subdirectory")
+    repo = validate_repository_root(repo)
     # --untracked-files=all prevents hidden local files from silently contaminating the snapshot.
     # Ignore untracked files, but refuse any tracked staged/unstaged differences.
     dirty = _git(repo, "diff", "--name-only", "HEAD")
