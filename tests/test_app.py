@@ -94,6 +94,29 @@ def test_web_cli_accepts_optional_workspace_and_models():
     assert init.focus == "Review risks"
 
 
+def test_web_cli_defaults_to_models_json_in_launch_directory(tmp_path, monkeypatch):
+    from reporeview_arena import cli
+
+    monkeypatch.chdir(tmp_path)
+    configured = tmp_path / "models.json"
+    configured.write_text(json.dumps({"models": [{"id": "configured"}]}), encoding="utf-8")
+    received = []
+    monkeypatch.setattr(
+        cli, "serve",
+        lambda workspace, *, port, models: received.append((workspace, port, models)),
+    )
+
+    cli.execute(cli.parser().parse_args(["web"]))
+    assert received[-1] == (None, 8765, configured)
+
+    configured.unlink()
+    cli.execute(cli.parser().parse_args(["web"]))
+    assert received[-1] == (None, 8765, None)
+
+    cli.execute(cli.parser().parse_args(["web", "--models", "custom-models.json"]))
+    assert received[-1] == (None, 8765, Path("custom-models.json"))
+
+
 def test_repository_configuration_has_visible_help_and_review_history(dashboard):
     _, base_url, _ = dashboard
     with urlopen(base_url + "/", timeout=2) as response:
@@ -738,9 +761,20 @@ NEW_TRANSLATION_KEYS = {
     "contestantsToAudit", "contestantsDescription", "selectAllContestants",
     "clearContestants", "contestantsSelected", "contestantHasReport",
     "noRunnableContestants", "selectAtLeastOneContestant",
+    "wizardTitle", "wizardLoading", "wizardProgress", "wizardStepRepository", "wizardStepReview",
+    "wizardStepReports", "wizardStepAdjudication", "wizardStepResults",
+    "wizardBack", "wizardContinue", "wizardDone", "wizardCurrent", "wizardReady",
+    "wizardLocked", "wizardProgressLabel",
+    "wizardRepoGate", "wizardReviewGate", "wizardReportsGate", "wizardAuditRunning",
+    "wizardFindingsGate", "wizardRubricGate", "wizardRefreshFailed",
+    "wizardReviewIntro", "wizardReportsIntro", "wizardAdjudicationIntro",
+    "wizardResultsIntro", "partialScoreboard",
 }
 SELECTION_BLOCK = re.compile(
     r"// BEGIN contestant-selection[^\n]*\n(.*?)// END contestant-selection", re.S,
+)
+WIZARD_BLOCK = re.compile(
+    r"// BEGIN wizard-state[^\n]*\n(.*?)// END wizard-state", re.S,
 )
 
 
@@ -792,6 +826,137 @@ def test_dashboard_translations_stay_in_sync_and_cover_the_markup(dashboard):
     literal |= set(re.findall(r'setLocalizedMessage\("[^"]+",\s*"([A-Za-z0-9_]+)"', page))
     # "verdict_" is a dynamic prefix (t("verdict_" + value)), not a key.
     assert (used | {key for key in literal if not key.endswith("_")}) <= english
+
+
+def test_control_page_exposes_accessible_five_step_wizard(dashboard):
+    _, base_url, _ = dashboard
+    page = _served_page(base_url)
+
+    assert 'id="wizard-nav"' in page
+    assert 'aria-label="Workflow progress"' in page
+    assert 'data-wizard-step="0"' in page
+    assert 'data-wizard-step="4"' in page
+    assert 'data-wizard-panel="0"' in page
+    assert 'data-wizard-panel="4"' in page
+    assert 'id="partial-scores"' in page
+    assert 'id="wizard-message" role="status"' in page
+    reports_step = re.search(
+        r'data-wizard-panel="2"(.*?)data-wizard-panel="3"', page, re.S,
+    )
+    assert reports_step and 'id="importmodel"' in reports_step.group(1)
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+@pytest.mark.parametrize(
+    ("status", "data", "repository_input", "complete", "unlocked", "max_unlocked"),
+    [
+        ({}, {}, "", [False, False, False, False], [True, False, False, False, False], 0),
+        (
+            {"repository_available": True, "repository_path": "C:/repo"}, {}, "C:/repo",
+            [True, False, False, False], [True, True, False, False, False], 1,
+        ),
+        (
+            {"repository_available": True, "repository_path": "C:/repo", "workspace": "C:/review"},
+            {"manifest": {}}, "C:/repo", [True, True, False, False],
+            [True, True, True, False, False], 2,
+        ),
+        (
+            {"repository_available": True, "repository_path": "C:/repo", "workspace": "C:/review",
+             "job": {"workspace": "C:/review", "status": "running"}},
+            {"manifest": {}, "reports": {"a": {"findings": []}}}, "C:/repo",
+            [True, True, False, False], [True, True, True, False, False], 2,
+        ),
+        (
+            {"repository_available": True, "repository_path": "C:/repo", "workspace": "C:/review",
+             "job": {"workspace": "C:/other", "status": "running"}},
+            {"manifest": {}, "reports": {"a": {"findings": []}}}, "C:/repo",
+            [True, True, True, False], [True, True, True, True, False], 3,
+        ),
+        (
+            {"repository_available": True, "repository_path": "C:/repo", "workspace": "C:/review",
+             "job": {"workspace": "C:/review", "status": "partial_failure"}},
+            {"manifest": {}, "reports": {"a": {"findings": [{"id": "F1"}]}},
+             "judgments": {"a": {"findings": {"F1": {"verdict": "confirmed"}}}}},
+            "C:/repo", [True, True, True, False], [True, True, True, True, False], 3,
+        ),
+        (
+            {"repository_available": True, "repository_path": "C:/repo", "workspace": "C:/review"},
+            {"manifest": {}, "reports": {"a": {"findings": [{"id": "F1"}]}},
+             "judgments": {"a": {"findings": {"F1": {"verdict": "pending"}},
+                                   "rubric": {"improvements": 0, "gold": 0, "rigor": 0}}}},
+            "C:/repo", [True, True, True, False], [True, True, True, True, False], 3,
+        ),
+        (
+            {"repository_available": True, "repository_path": "C:/repo", "workspace": "C:/review"},
+            {"manifest": {}, "reports": {"a": {"findings": [{"id": "F1"}]}},
+             "judgments": {"a": {"findings": {"F1": {"verdict": "false_positive"}},
+                                   "rubric": {"improvements": 0, "gold": 0, "rigor": 0}}}},
+            "C:/repo", [True, True, True, True], [True, True, True, True, True], 4,
+        ),
+        (
+            {"repository_available": True, "repository_path": "C:/repo", "workspace": "C:/review"},
+            {"manifest": {}, "reports": {"a": {"findings": []}}, "judgments": {}}, "C:/repo",
+            [True, True, True, False], [True, True, True, True, False], 3,
+        ),
+        (
+            {"repository_available": True, "repository_path": "C:/repo", "workspace": "C:/review"},
+            {"manifest": {}, "reports": {"a": {"findings": []}},
+             "judgments": {"a": {"rubric": {"improvements": 0, "gold": 0, "rigor": 0}}}},
+            "C:/changed", [False, False, False, False], [True, False, False, False, False], 0,
+        ),
+        (
+            {"repository_available": True, "repository_path": "C:/repo", "workspace": "C:/review"},
+            {"manifest": {}, "reports": {"a": {"findings": []}, "b": {"findings": []}},
+             "judgments": {"a": {"rubric": {"improvements": 0, "gold": 0, "rigor": 0}}}},
+            "C:/repo", [True, True, True, False], [True, True, True, True, False], 3,
+        ),
+    ],
+)
+def test_wizard_progress_is_derived_from_current_review_state(
+    status, data, repository_input, complete, unlocked, max_unlocked,
+):
+    block = WIZARD_BLOCK.search(app.PAGE)
+    assert block, "wizard-state block is missing"
+    script = (
+        block.group(1)
+        + f"\nconst result = deriveWizardState({json.dumps(status)}, {json.dumps(data)}, "
+        + f"{json.dumps(repository_input)});\nconsole.log(JSON.stringify(result));\n"
+    )
+    result = subprocess.run(
+        [NODE, "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    progress = json.loads(result.stdout)
+    assert progress["complete"] == complete
+    assert progress["unlocked"] == unlocked
+    assert progress["maxUnlocked"] == max_unlocked
+
+
+def test_manual_report_import_works_without_provider_models(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    workspace = _workspace(tmp_path / "manual-review")
+    status, _ = _request(
+        base_url, "/api/workspace/open", token=token, origin=base_url,
+        payload={"path": str(workspace)},
+    )
+    assert status == 200
+
+    report = {
+        "summary": "Manual review",
+        "golden_feature": {"name": "Clearer validation", "mechanism": ""},
+        "findings": [],
+    }
+    status, result = _request(
+        base_url, "/api/import", token=token, origin=base_url,
+        payload={"model": "manual", "content": json.dumps(report)},
+    )
+    assert status == 200
+    assert result["ok"] is True
+
+    status, data = _request(base_url, "/api/data")
+    assert status == 200
+    assert data["reports"]["manual"]["audit_metadata"]["source"] == "manual"
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
