@@ -1,0 +1,571 @@
+// RepoReview Arena — architecture as code (LikeC4)
+// Source of truth: the code in src/reporeview_arena at commit acd1e0c (package version 0.1.0).
+// Every element names the file or symbol it stands for; every relationship was read off an
+// import, a subprocess call, an HTTP route or a file write. Where README.md and the code
+// differ, the code wins (see the report that accompanies this file).
+// Validate:  node <worca>/scripts/c4-check-cli.mjs docs/architecture/architecture.c4
+
+specification {
+
+  color arenaTeal #1f7a78
+
+  element actor {
+    style {
+      shape person
+      color slate
+    }
+  }
+  element system {
+    style {
+      color blue
+    }
+  }
+  element client {
+    style {
+      shape browser
+      color violet
+    }
+  }
+  element process {
+    style {
+      color indigo
+    }
+  }
+  element module {
+    style {
+      color arenaTeal
+    }
+  }
+  element library {
+    style {
+      color violet
+    }
+  }
+  element store {
+    style {
+      shape storage
+      color amber
+    }
+  }
+  element artifact {
+    style {
+      color amber
+    }
+  }
+  element external {
+    style {
+      color slate
+    }
+  }
+
+  relationship spawns {
+    color indigo
+    line solid
+  }
+  relationship reads {
+    color slate
+    line dashed
+  }
+  relationship writes {
+    color amber
+    line solid
+  }
+
+  // boundary  = code that enforces a trust or safety limit (loopback gate, read-only tools, snapshot denylist)
+  // manual    = a step a human performs outside the application
+  // optional  = only present when the llm extra is installed or the operator opts in
+  // example   = a route taken from models.example.json; the code itself is provider-agnostic
+  tag boundary
+  tag manual
+  tag optional
+  tag example
+
+  deploymentNode layer
+  deploymentNode frame
+}
+
+model {
+
+  // ───────────────────────── People and outside tools ─────────────────────────
+
+  reviewer = actor 'Reviewer' {
+    description 'The one human in the loop. Creates the arena, confirms that source fragments may leave the machine, runs audits, then confirms or rejects every finding: nothing scores until they do.'
+  }
+
+  codingAgent = external 'IDE or coding agent' {
+    #manual
+    #optional
+    description 'Option B in the README: VS Code or any agent with wider tools, given the same prompt by hand. Its only link to Arena is a JSON report that the reviewer imports; the code never calls it.'
+    technology 'Outside this repository'
+  }
+
+  git = external 'git CLI' {
+    description 'The reporeview process shells out to it, with a 15 second timeout per call, to find the repository root, check for tracked-file changes, read HEAD and list tracked files. No checkout, fetch or clone.'
+    technology 'git rev-parse · git diff --name-only HEAD · git ls-files -z'
+  }
+
+  providers = external 'LLM provider endpoints' {
+    description 'Whatever LiteLLM routes a provider/model id to. models.example.json lists six example routes; any LiteLLM route, including one pinned with api_base, works the same way. Arena sees only the completion object that comes back.'
+
+    openai = external 'OpenAI' {
+      #example
+      description 'Example route openai/… (contestant id gpt).'
+    }
+    anthropic = external 'Anthropic' {
+      #example
+      description 'Example route anthropic/… (contestant id claude).'
+    }
+    gemini = external 'Google Gemini' {
+      #example
+      description 'Example route gemini/… (contestant id gemini).'
+    }
+    mistral = external 'Mistral' {
+      #example
+      description 'Example route mistral/… (contestant id mistral).'
+    }
+    xai = external 'xAI' {
+      #example
+      description 'Example route xai/… (contestant id grok).'
+    }
+    openrouter = external 'OpenRouter' {
+      #example
+      description 'Example route openrouter/… for four contestants (glm, qwen, kimi, mimo). Free endpoints are the case the retry and Retry-After handling was written for.'
+    }
+    custom = external 'Custom api_base endpoint' {
+      description 'Any compatible server named by the api_base field of a models.json entry; passed straight through to LiteLLM.'
+      technology 'models.json api_base'
+    }
+  }
+
+  // ───────────────────────── Files that live outside the arena folder ─────────────────────────
+
+  targetRepo = store 'Target Git checkout' {
+    description 'The clean local checkout being audited. Arena runs git against it and reads tracked files, and never writes to it. Untracked files are ignored; modified tracked files make init fail.'
+    technology 'Any local Git working tree'
+  }
+
+  modelsConfig = store 'models.json' {
+    description 'Operator-written contestant list: id, LiteLLM model name, optional api_base, max_tokens and enabled. Gitignored, copied from models.example.json, never holds keys. The CLI reads it at run time; the dashboard re-reads it on every status poll and run request.'
+    technology 'models.json (see models.example.json)'
+  }
+
+  apiKeys = store 'Provider API keys' {
+    description 'Environment variables of the local reporeview process (OPENAI_API_KEY, ANTHROPIC_API_KEY, … see .env.example). Arena code never reads, stores or logs them: the only mention in src/ is an error message. LiteLLM picks them up from the environment.'
+    technology 'Process environment'
+  }
+
+  // ───────────────────────────── RepoReview Arena ─────────────────────────────
+
+  arena = system 'RepoReview Arena' {
+    description 'Freezes one Git commit, gives every contestant model the same audit prompt and three read-only tools, validates what comes back, and ranks contestants on human-confirmed findings. Local only: no hosted component, no database, no queue.'
+    technology 'Python 3.11+ · src/reporeview_arena · no runtime dependencies (litellm is an optional extra)'
+
+    // ── Client ──
+
+    page = client 'Dashboard page' {
+      description 'One HTML page with inline CSS and JavaScript, built as a Python string and served by the dashboard server. English and Brazilian Portuguese, no build step. Renders report text with textContent and keeps the language choice in localStorage. Polls every 1.2 s while an audit job is queued or running.'
+      technology 'src/reporeview_arena/app.py (PAGE)'
+    }
+
+    // ── The process ──
+
+    proc = process 'reporeview process' {
+      description 'One OS process per invocation. reporeview web keeps it alive as a loopback HTTP server; init, run, import, judge, rubric, score and prompt run once and exit. Everything it knows is in the arena folder, except the active workspace and the dashboard job table, which live in memory.'
+      technology 'Python console script reporeview = reporeview_arena.cli:main'
+
+      cli = module 'CLI' {
+        description 'argparse front end for init, run, import, web, score, prompt, judge and rubric. Requires --confirm-send-code before any provider call and refuses to overwrite an existing report. Reaches into app.py for serve() and the private _data().'
+        technology 'src/reporeview_arena/cli.py'
+      }
+      server = module 'Dashboard server' {
+        #boundary
+        description 'Stdlib ThreadingHTTPServer on 127.0.0.1. Every request needs the exact Host header; every POST also needs the per-process X-Arena-Token and a same-origin Origin. Serves the page, a JSON API and a folder browser, and holds the active workspace in memory. Also re-implements the models.json parsing that cli.py has.'
+        technology 'src/reporeview_arena/app.py (create_server, Handler)'
+      }
+      jobs = module 'Audit job runner' {
+        description 'Runs one audit job on a daemon thread with its own asyncio loop. Only one job may be queued or running; starting another replaces the previous record. Job state is in memory and is lost on restart.'
+        technology 'src/reporeview_arena/app.py (_start_audit)'
+      }
+      orchestrator = module 'Orchestrator' {
+        #boundary
+        description 'One independent tool-use conversation per contestant, bounded by a concurrency semaphore (1 to 16), a step budget (at most 200) and a 250 kB context window that drops the oldest tool rounds. Dispatches exactly three tools and answers any other name with ERROR: unknown tool. Classifies provider failures, retries transient ones with exponential backoff and honours Retry-After up to 60 s.'
+        technology 'src/reporeview_arena/orchestrator.py (audit_many, audit_one)'
+      }
+      reader = module 'Read-only repository reader' {
+        #boundary
+        description 'The only thing a model can touch: list_files, read_file and search_code over the frozen snapshot. Bounded (250 names, 240 lines, 150 matches per call), no shell, no network, no writes, symlinks skipped, paths checked against an allow-list built at construction.'
+        technology 'src/reporeview_arena/repository.py (RepositoryReader)'
+      }
+      snapshotter = module 'Snapshot builder' {
+        #boundary
+        description 'Freezes a clean checkout: rejects a non-root path or modified tracked files, then copies each tracked UTF-8 text file that passes a name and extension denylist and the size limits (180 kB per file, 16 MB total). A denylist, not secret detection.'
+        technology 'src/reporeview_arena/repository.py (snapshot_repo)'
+      }
+      workspaceBuilder = module 'Workspace builder' {
+        description 'initialize_workspace(): snapshot, manifest.json and prompt.md in one step. Also turns the dashboard review priorities (nine criteria, 0 to 5, plus custom text) into the focus section of the prompt, and checks that a folder is a valid arena.'
+        technology 'src/reporeview_arena/workspace.py'
+      }
+      promptBuilder = module 'Prompt builder' {
+        description 'Fills one fixed audit template with repository name, commit, languages, exclusion count, focus and file tree. The identical prompt serves every contestant, API or manual.'
+        technology 'src/reporeview_arena/prompts.py (build_prompt)'
+      }
+      reportValidator = module 'Report validator' {
+        #boundary
+        description 'Accepts raw JSON or a fenced json block, checks the schema (required finding fields, severity P0 to P3, evidence status, a named golden_feature) and that every cited file is in the snapshot and every cited line exists. Nothing else decides what counts as a report.'
+        technology 'src/reporeview_arena/reports.py (parse_report, validate_locations)'
+      }
+      scorer = module 'Scorer' {
+        description 'Pure function over a report and its judgment: confirmed findings score P0 20, P1 10, P2 4, P3 1 once per issue key, capped at 60; false positives cost 5, or 10 if fabricated; human rubric adds improvements /15, gold /20, rigor /5; total clamped to 0 to 100. Unreviewed findings score zero.'
+        technology 'src/reporeview_arena/scoring.py (calculate, leaderboard)'
+      }
+      storage = module 'JSON storage' {
+        description 'load_json and save_json. save_json writes a temp file beside the target and os.replace()s it, so a crash never leaves a half-written report. workspace_file() would reject paths that escape the workspace but nothing calls it.'
+        technology 'src/reporeview_arena/storage.py'
+      }
+      litellm = library 'LiteLLM SDK' {
+        #optional
+        description 'Imported lazily inside audit_one() so a plain install works for manual review. Normalises every provider behind one acompletion() call with tool support. Arena turns its own retries off (num_retries 0, max_retries 0) and does the retrying itself.'
+        technology 'litellm>=1.70,<2 (pip install -e .[llm])'
+      }
+    }
+
+    // ── Data the application owns ──
+
+    workspace = store 'Arena workspace folder' {
+      description 'One folder per arena, created by init and never nested in the target repo. Plain JSON and text files; the folder is the whole database.'
+      technology 'Filesystem · path given to --out and --workspace'
+
+      manifest = artifact 'manifest.json' {
+        description 'Repo name, original path, commit SHA, detected languages, every kept file with byte count and SHA-256, and every skipped file with its reason (denylist, size limit, binary, non UTF-8, not a regular local file). Written once by init.'
+        technology 'workspace/manifest.json'
+      }
+      prompt = artifact 'prompt.md' {
+        description 'The single audit prompt every contestant receives. Read back by audit_one(), by reporeview prompt and by GET /api/prompt.'
+        technology 'workspace/prompt.md'
+      }
+      snapshot = artifact 'snapshot/' {
+        description 'Frozen, denylist-filtered copy of the tracked source at one commit. The only tree a model can read.'
+        technology 'workspace/snapshot/'
+      }
+      reports = artifact 'reports/' {
+        description 'One validated report per contestant: findings, hotpath, improvements, golden_feature and audit_metadata (tokens, calls, tools, retries, elapsed). Every entry point refuses to overwrite an existing id.'
+        technology 'workspace/reports/<model-id>.json'
+      }
+      judgments = artifact 'judgments/' {
+        description 'Human verdict, severity, issue key and fabricated-evidence flag per finding, plus the improvements, gold and rigor rubric. Rewritten in place by judge, rubric and the dashboard.'
+        technology 'workspace/judgments/<model-id>.json'
+      }
+      failures = artifact 'failures/' {
+        description 'Raw response, validation error, finish reason and token usage of a rejected report. The latest rejection replaces the previous one for that model; nothing here is ever scored.'
+        technology 'workspace/failures/<model-id>.json'
+      }
+    }
+  }
+
+  // ───────────────────────────── Relationships ─────────────────────────────
+
+  // People
+  reviewer -> arena.proc.cli 'types init, run, import, judge, rubric, score, prompt, web'
+  reviewer -> arena.page 'opens http://127.0.0.1:8765 to open or create an arena, run audits and adjudicate'
+  reviewer -> codingAgent 'runs the shared prompt by hand (Option B)'
+
+  // Dashboard page
+  arena.page -> arena.proc.server 'fetch JSON over HTTP on loopback: /api/status, /api/data, /api/prompt, /api/jobs, POST /api/*'
+
+  // CLI
+  arena.proc.cli -> arena.proc.workspaceBuilder 'init: initialize_workspace()'
+  arena.proc.cli -> arena.proc.orchestrator 'run: asyncio.run(audit_many())'
+  arena.proc.cli -> arena.proc.server 'web: serve()'
+  arena.proc.cli -> arena.proc.server 'score, judge, rubric: _data() for reports, judgments and leaderboard'
+  arena.proc.cli -> arena.proc.reportValidator 'import: parse_report() then validate_locations()'
+  arena.proc.cli -> arena.proc.storage 'load_json, save_json'
+  arena.proc.cli -[reads]-> modelsConfig 'run: enabled models, each checked with model_slug()'
+  arena.proc.cli -[reads]-> arena.workspace.prompt 'prompt: prints prompt.md'
+  arena.proc.cli -[writes]-> arena.workspace.reports 'import: reports/<model>.json'
+  arena.proc.cli -[writes]-> arena.workspace.judgments 'judge and rubric'
+
+  // Dashboard server
+  arena.proc.server -> arena.proc.jobs 'POST /api/run: _start_audit()'
+  arena.proc.server -> arena.proc.workspaceBuilder 'POST /api/workspace/init, validate_workspace()'
+  arena.proc.server -> arena.proc.reportValidator 'POST /api/import: parse_report() then validate_locations()'
+  arena.proc.server -> arena.proc.scorer 'GET /api/data: leaderboard()'
+  arena.proc.server -> arena.proc.storage 'load_json, save_json'
+  arena.proc.server -[reads]-> modelsConfig 'lists enabled ids only; model names never reach the browser'
+  arena.proc.server -[reads]-> arena.workspace.reports 'GET /api/data'
+  arena.proc.server -[reads]-> arena.workspace.judgments 'GET /api/data'
+  arena.proc.server -[reads]-> arena.workspace.manifest 'GET /api/data, approved file list for import'
+  arena.proc.server -[reads]-> arena.workspace.prompt 'GET /api/prompt'
+  arena.proc.server -[writes]-> arena.workspace.reports 'POST /api/import'
+  arena.proc.server -[writes]-> arena.workspace.judgments 'POST /api/adjudicate and /api/rubric'
+
+  // Audit job runner
+  arena.proc.jobs -> arena.proc.orchestrator 'asyncio.run(audit_many()) with a progress callback'
+
+  // Orchestrator
+  arena.proc.orchestrator -> arena.proc.reader 'list_files, read_file, search_code (at most 6 calls per turn, results cut to 14 kB)'
+  arena.proc.orchestrator -> arena.proc.litellm 'await acompletion(model, messages, tools, api_base?)'
+  arena.proc.orchestrator -> arena.proc.reportValidator 'final answer: parse_report() then validate_locations()'
+  arena.proc.orchestrator -> arena.proc.storage 'load_json, save_json'
+  arena.proc.orchestrator -[reads]-> arena.workspace.prompt 'prompt.md becomes the user message'
+  arena.proc.orchestrator -[reads]-> arena.workspace.manifest 'commit SHA for audit_metadata'
+  arena.proc.orchestrator -[writes]-> arena.workspace.reports 'reports/<model>.json on success'
+  arena.proc.orchestrator -[writes]-> arena.workspace.failures 'failures/<model>.json when a report is rejected'
+
+  // LiteLLM
+  arena.proc.litellm -> providers 'one HTTPS request per tool round'
+  arena.proc.litellm -[reads]-> apiKeys 'provider key from the environment'
+
+  // Read-only reader
+  arena.proc.reader -[reads]-> arena.workspace.snapshot 'only files in the allow-list built at construction'
+
+  // Workspace creation
+  arena.proc.workspaceBuilder -> arena.proc.snapshotter 'snapshot_repo()'
+  arena.proc.workspaceBuilder -> arena.proc.promptBuilder 'build_prompt(manifest, focus, tree)'
+  arena.proc.workspaceBuilder -> arena.proc.reader 'describe(): file tree for the prompt'
+  arena.proc.workspaceBuilder -> arena.proc.storage 'save_json(manifest.json)'
+  arena.proc.workspaceBuilder -[writes]-> arena.workspace.prompt 'prompt.md'
+  arena.proc.snapshotter -[spawns]-> git 'rev-parse, diff --name-only HEAD, ls-files -z'
+  arena.proc.snapshotter -[reads]-> targetRepo 'each allowed tracked file, read as bytes'
+  arena.proc.snapshotter -[writes]-> arena.workspace.snapshot 'sanitized UTF-8 copy, hashes go to the manifest'
+  git -[reads]-> targetRepo 'HEAD, index, working tree status'
+
+  // Storage
+  arena.proc.storage -[writes]-> arena.workspace.manifest 'atomic JSON write'
+  arena.proc.storage -[writes]-> arena.workspace.reports 'atomic JSON write'
+  arena.proc.storage -[writes]-> arena.workspace.judgments 'atomic JSON write'
+  arena.proc.storage -[writes]-> arena.workspace.failures 'atomic JSON write'
+
+  // The manual route
+  codingAgent -> providers 'its own model calls, outside Arena'
+}
+
+deployment {
+
+  you = layer 'You' {
+    description 'The reviewer and the two things they operate that are not Arena code: the browser tab and, for manual audits, an IDE or coding agent.'
+    metadata {
+      criteria 'Clients and actors: the people involved in an audit and the programs they operate directly, such as the browser dashboard and an IDE or coding agent.'
+      order 'declared'
+    }
+
+    person = instanceOf reviewer
+    dashboard = instanceOf arena.page {
+      technology 'Browser · EN / PT-BR'
+    }
+    ide = instanceOf codingAgent {
+      technology 'Option B · optional'
+    }
+  }
+
+  host = layer 'Host' {
+    description 'Your own machine. Nothing in Arena listens on any other interface or runs anywhere else.'
+    metadata {
+      criteria 'The main process and its modules: the reporeview Python process, the code under src/reporeview_arena, and the library loaded inside that process.'
+      order 'declared'
+    }
+
+    app = frame 'reporeview process' {
+      description 'The command-line entry points and the loopback dashboard share one code base and one process model.'
+      technology 'Python 3.11+'
+      metadata {
+        criteria 'Modules of src/reporeview_arena that run inside the reporeview process, plus the LiteLLM library it loads in-process.'
+        order 'dependencies'
+      }
+
+      cli = instanceOf arena.proc.cli
+      server = instanceOf arena.proc.server
+      jobs = instanceOf arena.proc.jobs
+      orchestrator = instanceOf arena.proc.orchestrator
+      reader = instanceOf arena.proc.reader
+      snapshotter = instanceOf arena.proc.snapshotter
+      workspaceBuilder = instanceOf arena.proc.workspaceBuilder
+      promptBuilder = instanceOf arena.proc.promptBuilder
+      reportValidator = instanceOf arena.proc.reportValidator
+      scorer = instanceOf arena.proc.scorer
+      storage = instanceOf arena.proc.storage
+      litellm = instanceOf arena.proc.litellm {
+        technology 'Optional extra'
+      }
+    }
+  }
+
+  services = layer 'Services' {
+    description 'Child processes started on demand. Arena has no daemon, queue or sidecar of its own.'
+    metadata {
+      criteria 'Other processes and sidecars that the main process starts or talks to on the same machine, which today means only the git subprocess.'
+      order 'declared'
+    }
+
+    gitCli = instanceOf git {
+      technology 'Subprocess · 15 s timeout'
+    }
+  }
+
+  stores = layer 'Data' {
+    description 'Plain files. There is no database.'
+    metadata {
+      criteria 'Stores: the files and folders the system reads or writes, meaning the arena workspace folder, models.json, the target checkout and the provider keys in the environment.'
+      order 'declared'
+    }
+
+    workspace = frame 'Arena workspace folder' {
+      description 'Everything Arena writes, one folder per arena.'
+      technology 'Filesystem'
+      metadata {
+        criteria 'The six artifacts Arena writes inside one arena folder: manifest, prompt, snapshot, reports, judgments and failures.'
+        order 'declared'
+      }
+
+      manifest = instanceOf arena.workspace.manifest
+      prompt = instanceOf arena.workspace.prompt
+      snapshot = instanceOf arena.workspace.snapshot
+      reports = instanceOf arena.workspace.reports
+      judgments = instanceOf arena.workspace.judgments
+      failures = instanceOf arena.workspace.failures
+    }
+
+    inputs = frame 'Inputs and configuration' {
+      description 'Things the operator supplies and Arena only reads.'
+      technology 'Filesystem · environment'
+      metadata {
+        criteria 'Files and settings that Arena only reads: the target Git checkout, models.json and the provider API keys in the process environment.'
+        order 'declared'
+      }
+
+      repo = instanceOf targetRepo {
+        technology 'Read only'
+      }
+      config = instanceOf modelsConfig {
+        technology 'Gitignored'
+      }
+      keys = instanceOf apiKeys {
+        technology 'Never written by Arena'
+      }
+    }
+  }
+
+  endpoints = layer 'Models' {
+    description 'The only network destinations. Source fragments leave the machine here, and only after the reviewer confirms.'
+    metadata {
+      criteria 'Model endpoints: the LLM provider APIs that LiteLLM sends audit conversations to, whether named in models.example.json or set through api_base.'
+      order 'declared'
+    }
+
+    openai = instanceOf providers.openai
+    anthropic = instanceOf providers.anthropic
+    gemini = instanceOf providers.gemini
+    mistral = instanceOf providers.mistral
+    xai = instanceOf providers.xai
+    openrouter = instanceOf providers.openrouter
+    custom = instanceOf providers.custom
+  }
+}
+
+views {
+
+  view index {
+    title 'RepoReview Arena in context'
+    description 'One reviewer, one local application, a git subprocess, the files it reads and the model providers it pays for.'
+
+    include *
+    autoLayout TopBottom
+  }
+
+  view parts of arena {
+    title 'Inside the application'
+    description 'A browser page, one Python process, and an arena folder that acts as the whole database.'
+
+    include *
+    autoLayout TopBottom
+  }
+
+  view modules of arena.proc {
+    title 'Modules of the reporeview process'
+    description 'Two entry points (CLI and dashboard server) over one audit engine, a snapshot builder, a report validator, a scorer and a JSON storage layer.'
+
+    include *
+    autoLayout TopBottom
+  }
+
+  view folder of arena.workspace {
+    title 'The arena workspace folder'
+    description 'Six artifacts and which module writes or reads each of them.'
+
+    include *
+    autoLayout LeftRight
+  }
+
+  dynamic view freezeFlow {
+    title 'Create an arena'
+    description 'reporeview init (the dashboard does the same through POST /api/workspace/init): freeze one commit, record what was kept and skipped, write the prompt.'
+
+    reviewer -> arena.proc.cli 'reporeview init --repo --out --focus'
+    arena.proc.cli -> arena.proc.workspaceBuilder 'initialize_workspace()'
+    arena.proc.workspaceBuilder -> arena.proc.snapshotter 'snapshot_repo()'
+    arena.proc.snapshotter -> git 'rev-parse, diff --name-only HEAD, ls-files -z'
+    arena.proc.snapshotter -> targetRepo 'reads each allowed tracked file'
+    arena.proc.snapshotter -> arena.workspace.snapshot 'writes the sanitized copy'
+    arena.proc.workspaceBuilder -> arena.workspace.manifest 'save_json(manifest.json)'
+    arena.proc.workspaceBuilder -> arena.proc.promptBuilder 'build_prompt()'
+    arena.proc.workspaceBuilder -> arena.workspace.prompt 'writes prompt.md'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view auditFlow {
+    title 'Audit one contestant from the dashboard'
+    description 'The only path that sends source to a provider. The CLI run command reaches the orchestrator the same way, without the HTTP and job steps.'
+
+    reviewer -> arena.page 'ticks contestants, authorizes sending, Start audit'
+    arena.page -> arena.proc.server 'POST /api/run with X-Arena-Token and confirm_send_code'
+    arena.proc.server -> arena.proc.jobs 'one daemon thread, one job at a time'
+    arena.proc.jobs -> arena.proc.orchestrator 'asyncio.run(audit_many())'
+    arena.proc.orchestrator -> arena.workspace.prompt 'reads prompt.md'
+    arena.proc.orchestrator -> arena.proc.litellm 'acompletion(messages, tools)'
+    arena.proc.litellm -> providers 'one request per tool round'
+    arena.proc.orchestrator -> arena.proc.reader 'list_files, read_file, search_code'
+    arena.proc.reader -> arena.workspace.snapshot 'reads approved files only'
+    arena.proc.orchestrator -> arena.proc.reportValidator 'parse_report(), validate_locations()'
+    arena.proc.orchestrator -> arena.workspace.reports 'reports/<model>.json, or failures/<model>.json if rejected'
+    arena.page -> arena.proc.server 'GET /api/status every 1.2 s until the job ends'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view importFlow {
+    title 'Import a manual report'
+    description 'Option B: the same prompt goes to an IDE or coding agent by hand, and its JSON comes back through the same validator as an API report.'
+
+    reviewer -> arena.proc.cli 'reporeview prompt'
+    arena.proc.cli -> arena.workspace.prompt 'prints prompt.md'
+    reviewer -> codingAgent 'pastes the prompt, collects the JSON report'
+    reviewer -> arena.proc.cli 'reporeview import --model --file'
+    arena.proc.cli -> arena.proc.reportValidator 'parse_report(), validate_locations()'
+    arena.proc.cli -> arena.workspace.reports 'writes reports/<model>.json'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view reviewFlow {
+    title 'Adjudicate and rank'
+    description 'Scores are recomputed from reports and judgments on every GET /api/data; nothing is cached.'
+
+    reviewer -> arena.page 'sets verdict, severity, issue key and rubric scores'
+    arena.page -> arena.proc.server 'POST /api/adjudicate or /api/rubric'
+    arena.proc.server -> arena.workspace.judgments 'judgments/<model>.json'
+    arena.page -> arena.proc.server 'GET /api/data'
+    arena.proc.server -> arena.workspace.reports 'reads reports/*.json and judgments/*.json'
+    arena.proc.server -> arena.proc.scorer 'leaderboard()'
+    arena.proc.server -> arena.page 'reports, judgments, leaderboard'
+
+    autoLayout LeftRight
+  }
+
+  deployment view deployment {
+    title 'Deployment'
+    description 'Everything runs on the reviewer machine. The only network traffic is LiteLLM to the model providers; the dashboard listens on 127.0.0.1 only.'
+
+    include you.*, host.*, host.app.*, services.*, stores.*, stores.workspace.*, stores.inputs.*, endpoints.*
+    autoLayout TopBottom
+  }
+}
