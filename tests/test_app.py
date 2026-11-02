@@ -1,0 +1,657 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import re
+import shutil
+import subprocess
+import time
+from pathlib import Path
+from threading import Event, Thread
+from types import SimpleNamespace
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+import pytest
+
+from reporeview_arena import app
+from reporeview_arena.storage import save_json
+from reporeview_arena.workspace import REVIEW_FOCUS_CRITERIA, format_review_focus
+
+
+def _request(base_url: str, path: str, *, token: str | None = None,
+             payload: dict | None = None, origin: str | None = None):
+    headers = {"Content-Type": "application/json"}
+    if token is not None:
+        headers["X-Arena-Token"] = token
+    if origin is not None:
+        headers["Origin"] = origin
+    body = json.dumps(payload).encode() if payload is not None else None
+    request = Request(base_url + path, data=body, headers=headers)
+    try:
+        with urlopen(request, timeout=2) as response:
+            return response.status, json.loads(response.read())
+    except HTTPError as response:
+        return response.code, json.loads(response.read())
+
+
+@pytest.fixture
+def dashboard(tmp_path: Path):
+    server = app.create_server(port=0)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_port}"
+    try:
+        with urlopen(base_url + "/", timeout=2) as response:
+            page = response.read().decode()
+        token = re.search(r"const token\s*=\s*([^;]+);", page).group(1)
+        yield server, base_url, json.loads(token)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def _workspace(path: Path) -> Path:
+    path.mkdir()
+    (path / "snapshot").mkdir()
+    (path / "snapshot" / "main.py").write_text("print('demo')\n", encoding="utf-8")
+    (path / "reports").mkdir()
+    (path / "judgments").mkdir()
+    (path / "prompt.md").write_text("Review this repository.", encoding="utf-8")
+    save_json(path / "manifest.json", {
+        "repo_name": "demo", "commit": "abc123", "file_count": 1,
+        "files": [{"path": "main.py"}], "skipped": [],
+    })
+    return path
+
+
+def _git_repo(path: Path) -> Path:
+    path.mkdir()
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    subprocess.run(["git", "-C", str(path), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(path), "config", "user.email", "test@example.com"], check=True)
+    (path / "main.py").write_text("print('demo')\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(path), "add", "main.py"], check=True)
+    subprocess.run(["git", "-C", str(path), "commit", "-qm", "demo"], check=True)
+    return path
+
+
+def test_web_cli_accepts_optional_workspace_and_models():
+    from reporeview_arena.cli import parser
+
+    args = parser().parse_args(["web", "--models", "models.json"])
+    assert args.workspace is None
+    assert args.models == Path("models.json")
+
+    legacy = parser().parse_args(["web", "--workspace", "arena"])
+    assert legacy.workspace == Path("arena")
+    assert legacy.models is None
+
+    init = parser().parse_args([
+        "init", "--repo", "repo", "--out", "arena", "--focus", "Review risks",
+    ])
+    assert init.focus == "Review risks"
+
+
+def test_workspace_fields_have_visible_help_and_accessible_tooltips(dashboard):
+    _, base_url, _ = dashboard
+    with urlopen(base_url + "/", timeout=2) as response:
+        page = response.read().decode()
+
+    for field_id in ("workspace-path", "repo-path", "out-path"):
+        assert f'aria-describedby="{field_id}-help"' in page
+        assert f'id="{field_id}-help" role="tooltip"' in page
+    assert 'id="focus-custom-text"' in page
+    assert page.count('type="range"') == 9
+    assert page.count('role="tooltip"') == 14
+    assert 'maxlength="4000"' in page
+    for criterion_id, (_label, default_value) in REVIEW_FOCUS_CRITERIA.items():
+        assert f'id="priority-{criterion_id}"' in page
+        assert f'value="{default_value}"' in page
+        assert f'aria-describedby="priority-{criterion_id}-help' in page
+    assert "Root folder of a clean local Git checkout." in page
+    assert "new folder" in page
+    assert "Review focus" in page
+    assert "Critical flows and impact" in page
+    assert "Fluxos críticos e impacto" in page
+
+
+def test_review_focus_composition_omits_zero_values_and_appends_custom_criteria():
+    focus = format_review_focus(
+        {"critical_flows": 5, "correctness": 0, "security": 2},
+        "Check payment retry behavior\nTrace tenant boundaries",
+    )
+
+    assert "Critical flows and impact — priority 5/5 (critical)" in focus
+    assert "Security and privacy — priority 2/5 (medium)" in focus
+    assert "Correctness and edge cases" not in focus
+    assert focus.endswith(
+        "Custom criteria (one per line):\n"
+        "Check payment retry behavior\n"
+        "Trace tenant boundaries"
+    )
+
+
+def test_review_focus_composition_explains_when_nothing_is_selected():
+    assert format_review_focus({"critical_flows": 0}, " \n  ") == (
+        "No additional priorities selected; follow the general audit instructions."
+    )
+
+
+def test_review_focus_accepts_the_full_custom_text_limit():
+    focus = format_review_focus({}, "x" * 4000)
+
+    assert focus.endswith("Custom criteria (one per line):\n" + "x" * 4000)
+    assert len(focus) <= 6000
+
+
+def test_review_focus_preserves_custom_text_as_entered():
+    custom_text = "  Keep leading spaces\nKeep trailing spaces  \n"
+
+    focus = format_review_focus({}, custom_text)
+
+    assert focus.endswith("Custom criteria (one per line):\n" + custom_text)
+
+
+@pytest.mark.parametrize(
+    ("criteria", "custom_text"),
+    [
+        ({"unknown": 1}, ""),
+        ({"critical_flows": -1}, ""),
+        ({"critical_flows": 6}, ""),
+        ({"critical_flows": True}, ""),
+        ({}, "x" * 4001),
+        ([], ""),
+    ],
+)
+def test_review_focus_composition_rejects_invalid_values(criteria, custom_text):
+    with pytest.raises(ValueError):
+        format_review_focus(criteria, custom_text)
+
+
+def test_dashboard_starts_without_workspace_and_can_open_one(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    workspace = _workspace(tmp_path / "arena")
+
+    status, configuration = _request(base_url, "/api/status")
+    assert status == 200
+    assert configuration["models"] == []
+    assert "--models" in configuration["models_error"]
+    status, data = _request(base_url, "/api/data")
+    assert status == 409
+    assert "workspace" in data["error"].lower()
+
+    status, opened = _request(
+        base_url, "/api/workspace/open", token=token, origin=base_url,
+        payload={"path": str(workspace)},
+    )
+
+    assert status == 200
+    assert opened["manifest"]["repo_name"] == "demo"
+    status, prompt = _request(base_url, "/api/prompt")
+    assert status == 200
+    assert prompt["prompt"] == "Review this repository."
+    status, data = _request(base_url, "/api/data")
+    assert status == 200
+    assert data["manifest"]["commit"] == "abc123"
+
+
+def test_workspace_changes_require_token_and_same_origin(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    workspace = _workspace(tmp_path / "arena")
+
+    status, _ = _request(base_url, "/api/workspace/open", payload={"path": str(workspace)})
+    assert status == 403
+    status, _ = _request(
+        base_url, "/api/workspace/open", token=token, origin="http://evil.example",
+        payload={"path": str(workspace)},
+    )
+    assert status == 403
+    status, data = _request(base_url, "/api/data")
+    assert status == 409
+    assert "workspace" in data["error"].lower()
+
+    repo = _git_repo(tmp_path / "project")
+    output = tmp_path / "unauthorized-arena"
+    payload = {
+        "repo": str(repo), "out": str(output),
+        "review_focus": {"criteria": {}, "custom_text": ""},
+    }
+    status, _ = _request(base_url, "/api/workspace/init", payload=payload)
+    assert status == 403
+    status, _ = _request(
+        base_url, "/api/workspace/init", token=token, origin="http://evil.example",
+        payload=payload,
+    )
+    assert status == 403
+    assert not output.exists()
+
+
+def test_dashboard_initializes_and_selects_new_workspace(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    output = tmp_path / "new-arena"
+
+    status, result = _request(
+        base_url, "/api/workspace/init", token=token, origin=base_url,
+        payload={"repo": str(repo), "out": str(output), "focus": "Review risks"},
+    )
+
+    assert status == 201
+    assert result["manifest"]["repo_name"] == "project"
+    assert (output / "prompt.md").is_file()
+    assert "Review risks" in (output / "prompt.md").read_text(encoding="utf-8")
+    status, data = _request(base_url, "/api/data")
+    assert status == 200
+    assert data["manifest"]["commit"] == result["manifest"]["commit"]
+
+
+def test_dashboard_initializes_with_structured_review_focus(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    output = tmp_path / "new-arena"
+
+    status, _ = _request(
+        base_url, "/api/workspace/init", token=token, origin=base_url,
+        payload={
+            "repo": str(repo),
+            "out": str(output),
+            "review_focus": {
+                "criteria": {"critical_flows": 5, "correctness": 0, "security": 2},
+                "custom_text": "Check payment retry behavior\nTrace tenant boundaries",
+            },
+        },
+    )
+
+    assert status == 201
+    prompt = (output / "prompt.md").read_text(encoding="utf-8")
+    assert "Critical flows and impact — priority 5/5 (critical)" in prompt
+    assert "Security and privacy — priority 2/5 (medium)" in prompt
+    assert "Correctness and edge cases" not in prompt
+    assert (
+        "Custom criteria (one per line):\n"
+        "Check payment retry behavior\nTrace tenant boundaries"
+    ) in prompt
+    assert not (output / "review-focus.json").exists()
+
+
+@pytest.mark.parametrize(
+    "review_focus",
+    [
+        {"criteria": {"unknown": 1}, "custom_text": ""},
+        {"criteria": {"security": 9}, "custom_text": ""},
+        {"criteria": {"security": True}, "custom_text": ""},
+        {"criteria": [], "custom_text": ""},
+        {"criteria": {}, "custom_text": "x" * 4001},
+        {"criteria": {}, "custom_text": "", "unexpected": "value"},
+    ],
+)
+def test_dashboard_rejects_invalid_structured_review_focus(dashboard, tmp_path, review_focus):
+    _, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    output = tmp_path / "new-arena"
+
+    status, error = _request(
+        base_url, "/api/workspace/init", token=token, origin=base_url,
+        payload={
+            "repo": str(repo), "out": str(output), "review_focus": review_focus,
+        },
+    )
+
+    assert status == 400
+    assert error["error"]
+    assert not output.exists()
+
+
+def test_dashboard_rejects_invalid_workspace_path_without_switching(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    workspace = _workspace(tmp_path / "arena")
+    _request(base_url, "/api/workspace/open", token=token, origin=base_url,
+             payload={"path": str(workspace)})
+
+    status, error = _request(
+        base_url, "/api/workspace/open", token=token, origin=base_url,
+        payload={"path": str(tmp_path / "missing")},
+    )
+
+    assert status == 400
+    assert error["error"]
+    status, data = _request(base_url, "/api/data")
+    assert status == 200
+    assert data["manifest"]["repo_name"] == "demo"
+
+
+def test_dashboard_rejects_bad_init_inputs_and_existing_output(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    existing = _workspace(tmp_path / "already-there")
+    repo = _git_repo(tmp_path / "project")
+
+    status, _ = _request(
+        base_url, "/api/workspace/init", token=token, origin=base_url,
+        payload={"repo": str(tmp_path / "missing"), "out": str(tmp_path / "new")},
+    )
+    assert status == 400
+    status, _ = _request(
+        base_url, "/api/workspace/init", token=token, origin=base_url,
+        payload={"repo": str(repo), "out": str(existing)},
+    )
+    assert status == 400
+    status, data = _request(base_url, "/api/data")
+    assert status == 409
+    assert "workspace" in data["error"].lower()
+
+
+def test_status_lists_only_enabled_model_ids_and_hides_config_values(dashboard, tmp_path):
+    _, base_url, _ = dashboard
+    config = tmp_path / "models.json"
+    config.write_text(json.dumps({"models": [
+        {"id": "visible", "model": "test/model", "api_key": "TEST_ONLY_SECRET"},
+        {"id": "off", "model": "test/off", "enabled": False},
+    ]}), encoding="utf-8")
+    dashboard[0].models_path = config
+
+    status, data = _request(base_url, "/api/status")
+
+    assert status == 200
+    assert data["models"] == [{"id": "visible"}]
+    assert "test/model" not in json.dumps(data)
+    assert "TEST_ONLY_SECRET" not in json.dumps(data)
+
+
+def test_run_requires_confirmation_and_reports_background_results(dashboard, tmp_path, monkeypatch):
+    _, base_url, token = dashboard
+    workspace = _workspace(tmp_path / "arena")
+    _request(base_url, "/api/workspace/open", token=token, origin=base_url,
+             payload={"path": str(workspace)})
+    config = tmp_path / "models.json"
+    config.write_text(json.dumps({"models": [
+        {"id": "mock", "model": "test/mock"},
+        {"id": "broken", "model": "test/broken"},
+        {"id": "disabled", "model": "test/disabled", "enabled": False},
+    ]}), encoding="utf-8")
+    server = dashboard[0]
+    server.models_path = config
+    observed = {}
+
+    real_audit_many = app.audit_many
+
+    async def completion(**kwargs):
+        if kwargs["model"] == "test/broken":
+            raise ConnectionError("provider unavailable")
+        return SimpleNamespace(
+            choices=[SimpleNamespace(
+                message=SimpleNamespace(
+                    content=json.dumps({"findings": [], "golden_feature": {"name": "Feature"}}),
+                    tool_calls=[],
+                ),
+                finish_reason="stop",
+            )],
+            usage=SimpleNamespace(prompt_tokens=4, completion_tokens=2),
+        )
+
+    async def audit_many(path, models, **kwargs):
+        observed["models"] = models
+        observed.update(kwargs)
+        return await real_audit_many(path, models, completion=completion, **kwargs)
+
+    monkeypatch.setattr(app, "audit_many", audit_many)
+    status, _ = _request(
+        base_url, "/api/run", token=token, origin=base_url,
+        payload={"models": ["mock", "broken"], "confirm_send_code": False},
+    )
+    assert status == 400
+
+    status, started = _request(
+        base_url, "/api/run", token=token, origin=base_url,
+        payload={"models": ["mock", "broken"], "confirm_send_code": True,
+                 "concurrency": 3, "max_steps": 20, "retries": 1, "retry_delay": 0.5},
+    )
+    assert status == 202
+    job_id = started["job"]["id"]
+    for _ in range(50):
+        status, result = _request(base_url, f"/api/jobs/{job_id}")
+        if result["job"]["status"] in {"succeeded", "partial_failure", "failed"}:
+            break
+        time.sleep(0.01)
+
+    assert result["job"]["status"] == "partial_failure"
+    assert [model["id"] for model in observed["models"]] == ["mock", "broken"]
+    assert observed["concurrency"] == 3
+    assert observed["max_steps"] == 20
+    assert observed["retries"] == 1
+    assert observed["retry_delay"] == 0.5
+    assert len(result["job"]["outcomes"]) == 2
+    assert result["job"]["models"] == [
+        {"id": "mock", "status": "succeeded"},
+        {"id": "broken", "status": "failed"},
+    ]
+    assert (workspace / "reports" / "mock.json").is_file()
+    assert not (workspace / "reports" / "broken.json").exists()
+
+
+def test_run_rejects_missing_config_duplicate_and_unauthorized_requests(dashboard, tmp_path, monkeypatch):
+    _, base_url, token = dashboard
+    workspace = _workspace(tmp_path / "arena")
+    _request(base_url, "/api/workspace/open", token=token, origin=base_url,
+             payload={"path": str(workspace)})
+    called = False
+
+    async def audit_many(*args, **kwargs):
+        nonlocal called
+        called = True
+        return []
+
+    monkeypatch.setattr(app, "audit_many", audit_many)
+    payload = {"models": ["mock"], "confirm_send_code": True}
+    status, _ = _request(base_url, "/api/run", payload=payload)
+    assert status == 403
+    assert not called
+
+    server = dashboard[0]
+    server.models_path = tmp_path / "missing-models.json"
+    status, error = _request(base_url, "/api/run", token=token, origin=base_url, payload=payload)
+    assert status == 400
+    assert "models" in error["error"].lower()
+
+    server.models_path = tmp_path / "models.json"
+    server.models_path.write_text(json.dumps({"models": [{"id": "mock", "model": "test/mock"}]}), encoding="utf-8")
+    save_json(workspace / "reports" / "mock.json", {
+        "findings": [], "golden_feature": {"name": "Feature"},
+    })
+    status, error = _request(base_url, "/api/run", token=token, origin=base_url, payload=payload)
+    assert status == 400
+    assert "overwrite" in error["error"].lower()
+    assert not called
+
+
+def test_only_one_audit_can_run_at_a_time(dashboard, tmp_path, monkeypatch):
+    _, base_url, token = dashboard
+    workspace = _workspace(tmp_path / "arena")
+    _request(base_url, "/api/workspace/open", token=token, origin=base_url,
+             payload={"path": str(workspace)})
+    config = tmp_path / "models.json"
+    config.write_text(json.dumps({"models": [{"id": "mock", "model": "test/mock"}]}), encoding="utf-8")
+    dashboard[0].models_path = config
+    started = Event()
+    release = Event()
+
+    async def audit_many(*args, progress, **kwargs):
+        progress({"model": "mock", "status": "running"})
+        started.set()
+        await asyncio.to_thread(release.wait, 3)
+        progress({"model": "mock", "status": "succeeded"})
+        return [{"model": "mock", "findings": 0}]
+
+    monkeypatch.setattr(app, "audit_many", audit_many)
+    payload = {"models": ["mock"], "confirm_send_code": True}
+    try:
+        status, result = _request(
+            base_url, "/api/run", token=token, origin=base_url,
+            payload={**payload, "retry_delay": 61},
+        )
+        assert status == 400
+        assert not started.is_set()
+
+        status, result = _request(base_url, "/api/run", token=token, origin=base_url, payload=payload)
+        assert status == 202
+        assert started.wait(2)
+        _, running = _request(base_url, "/api/status")
+        assert running["job"]["models"] == [{"id": "mock", "status": "running"}]
+
+        status, error = _request(base_url, "/api/run", token=token, origin=base_url, payload=payload)
+        assert status == 409
+        assert "already running" in error["error"].lower()
+    finally:
+        release.set()
+
+    for _ in range(50):
+        status, result = _request(base_url, "/api/status")
+        if result["job"]["status"] == "succeeded":
+            break
+        time.sleep(0.01)
+    assert result["job"]["status"] == "succeeded"
+
+
+NODE = shutil.which("node")
+NEW_TRANSLATION_KEYS = {
+    "contestantsToAudit", "contestantsDescription", "selectAllContestants",
+    "clearContestants", "contestantsSelected", "contestantHasReport",
+    "noRunnableContestants", "selectAtLeastOneContestant",
+}
+SELECTION_BLOCK = re.compile(
+    r"// BEGIN contestant-selection[^\n]*\n(.*?)// END contestant-selection", re.S,
+)
+
+
+def _served_page(base_url: str) -> str:
+    with urlopen(base_url + "/", timeout=2) as response:
+        return response.read().decode()
+
+
+def _translation_keys(page: str) -> tuple[set[str], set[str]]:
+    block = re.search(
+        r"const translations = \{\n  en: \{(.*?)\n  \},\n  \"pt-BR\": \{(.*?)\n  \},\n\};",
+        page, re.S,
+    )
+    assert block, "translations object not found"
+    key = re.compile(r"^ {4}([A-Za-z0-9_]+):", re.M)
+    return set(key.findall(block.group(1))), set(key.findall(block.group(2)))
+
+
+def test_contestant_picker_is_a_labelled_checkbox_group(dashboard):
+    _, base_url, _ = dashboard
+    page = _served_page(base_url)
+
+    group = re.search(
+        r'<fieldset id="contestants-fieldset" class="contestants"[^>]*>(.*?)</fieldset>',
+        page, re.S,
+    )
+    assert group, "contestant picker fieldset is missing"
+    body = group.group(1)
+    assert '<legend data-i18n="contestantsToAudit">Contestants to audit</legend>' in body
+    assert 'id="contestants-select-all"' in body
+    assert 'id="contestants-clear"' in body
+    assert 'id="contestants-count" class="meta" role="status"' in body
+    assert 'id="run-models"' in body and 'id="models-message"' in body
+    assert ('aria-describedby="contestants-description contestants-count models-message"'
+            in group.group(0))
+    assert "Modelos participantes para auditar" in page
+    assert "reportAlreadyExists" not in page
+
+
+def test_dashboard_translations_stay_in_sync_and_cover_the_markup(dashboard):
+    _, base_url, _ = dashboard
+    page = _served_page(base_url)
+    english, portuguese = _translation_keys(page)
+
+    assert english == portuguese
+    assert NEW_TRANSLATION_KEYS <= english
+    used = set(re.findall(r'data-i18n(?:-[a-z-]+)?="([A-Za-z0-9_]+)"', page))
+    literal = set(re.findall(r'\bt\("([A-Za-z0-9_]+)"', page))
+    literal |= set(re.findall(r'setLocalizedMessage\("[^"]+",\s*"([A-Za-z0-9_]+)"', page))
+    # "verdict_" is a dynamic prefix (t("verdict_" + value)), not a key.
+    assert (used | {key for key in literal if not key.endswith("_")}) <= english
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+@pytest.mark.parametrize(
+    ("previous", "models", "reports", "runnable", "selected"),
+    [
+        # First render for an arena ticks every runnable contestant.
+        (None, ["a", "b", "c"], {"b": {}}, ["a", "c"], ["a", "c"]),
+        # A user's subset survives a re-render (poll, language toggle, refresh).
+        (["a"], ["a", "b", "c"], {}, ["a", "b", "c"], ["a"]),
+        # "Clear selection" ([]) must not fall back to the default.
+        ([], ["a", "b"], {}, ["a", "b"], []),
+        # A contestant that gained a report is pruned from the selection.
+        (["a", "b"], ["a", "b"], {"b": {}}, ["a"], ["a"]),
+        # A model added to models.json later starts unticked.
+        (["a"], ["a", "d"], {}, ["a", "d"], ["a"]),
+        # Valid ids that collide with Object.prototype members are not "locked".
+        (None, ["constructor", "toString"], {}, ["constructor", "toString"],
+         ["constructor", "toString"]),
+        (None, [], {}, [], []),
+    ],
+)
+def test_contestant_selection_reconciliation(previous, models, reports, runnable, selected):
+    block = SELECTION_BLOCK.search(app.PAGE)
+    assert block, "contestant-selection block is missing"
+    case = {"previous": previous, "models": [{"id": m} for m in models], "reports": reports}
+    script = (
+        block.group(1)
+        + f"\nconst c = {json.dumps(case)};\n"
+        + "console.log(JSON.stringify("
+        + "reconcileContestantSelection(c.previous, c.models, c.reports)));\n"
+    )
+    result = subprocess.run(
+        [NODE, "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {"runnable": runnable, "selected": selected}
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_dashboard_script_is_syntactically_valid(dashboard, tmp_path):
+    _, base_url, _ = dashboard
+    script = re.search(r"</main><script>(.*)</script></body>", _served_page(base_url), re.S)
+    assert script, "dashboard script not found"
+    path = tmp_path / "dashboard.js"
+    path.write_text(script.group(1), encoding="utf-8")
+    result = subprocess.run(
+        [NODE, "--check", str(path)], capture_output=True, text=True,
+        encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("selection", [[], ["off"], ["ghost"], ["mock", "mock"], "mock", [1]])
+def test_run_rejects_invalid_contestant_selections(dashboard, tmp_path, monkeypatch, selection):
+    """The server stays the authority even though the client now guards an empty selection."""
+    _, base_url, token = dashboard
+    workspace = _workspace(tmp_path / "arena")
+    _request(base_url, "/api/workspace/open", token=token, origin=base_url,
+             payload={"path": str(workspace)})
+    config = tmp_path / "models.json"
+    config.write_text(json.dumps({"models": [
+        {"id": "mock", "model": "test/mock"},
+        {"id": "off", "model": "test/off", "enabled": False},
+    ]}), encoding="utf-8")
+    dashboard[0].models_path = config
+    called = False
+
+    async def audit_many(*args, **kwargs):
+        nonlocal called
+        called = True
+        return []
+
+    monkeypatch.setattr(app, "audit_many", audit_many)
+    status, error = _request(
+        base_url, "/api/run", token=token, origin=base_url,
+        payload={"models": selection, "confirm_send_code": True},
+    )
+
+    assert status == 400
+    assert error["error"]
+    assert not called

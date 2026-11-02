@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from .reports import parse_report, validate_locations
 from .repository import RepositoryReader
@@ -287,11 +287,14 @@ async def audit_many(
     workspace: Path, models: list[dict[str, Any]], *, concurrency: int = 2,
     max_steps: int = 35, timeout: int = 120, retries: int = 2,
     retry_delay: float = 5, completion=None,
+    progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> list[dict]:
     semaphore = asyncio.Semaphore(max(1, min(concurrency, 16)))
 
     async def go(model: dict[str, Any]) -> dict:
         async with semaphore:
+            if progress:
+                progress({"model": model["id"], "status": "running"})
             print(f"[arena] Auditing {model['id']}...", flush=True)
             try:
                 outcome = await audit_one(
@@ -299,6 +302,8 @@ async def audit_many(
                     retries=retries, retry_delay=retry_delay, completion=completion,
                 )
                 print(f"[arena] Finished {model['id']}: {outcome['findings']} findings", flush=True)
+                if progress:
+                    progress({"model": model["id"], "status": "succeeded"})
                 return outcome
             except Exception as exc:
                 details = exc.details if isinstance(exc, AuditFailure) else {
@@ -307,8 +312,13 @@ async def audit_many(
                 }
                 print(f"[arena] Failed {model['id']}: {details['error_type']}: "
                       f"{details['error']}", flush=True)
+                if progress:
+                    progress({"model": model["id"], "status": "failed"})
                 return {"model": model["id"], **details}
 
     if len({m["id"] for m in models}) != len(models):
         raise ValueError("Each model must have a unique ID")
+    if progress:
+        for model in models:
+            progress({"model": model["id"], "status": "queued"})
     return await asyncio.gather(*(go(model) for model in models))

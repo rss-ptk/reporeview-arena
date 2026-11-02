@@ -18,7 +18,7 @@ This is an **MVP**, not a security certification, production trade gate or autom
 | Feature | Status |
 | --- | --- |
 | Local Git repository snapshot, commit SHA, language fingerprint, exclusion manifest | Implemented |
-| Generic audit prompt, hotpath focus, read-only navigation | Implemented |
+| Generic audit prompt with weighted review criteria and custom focus, read-only navigation | Implemented |
 | BYOK multi-provider model orchestration via LiteLLM | Implemented (credentials required) |
 | Independent conversations, bounded parallelism and tool steps | Implemented |
 | JSON reports, manual import from coding agents/VS Code | Implemented |
@@ -95,7 +95,7 @@ reporeview run --workspace ./arenas/project-2026 --models models.json --concurre
 
 Each tool round is another API request. Reducing concurrency does not reset daily quotas or restore an unavailable model. Check [OpenRouter rate limits](https://openrouter.ai/docs/api/reference/limits) and [provider errors](https://openrouter.ai/docs/api/reference/errors) when these failures persist.
 
-Failures include a `stage` (`provider`, `report` or `workspace`) and an actionable message. Provider failures include an HTTP status and `Retry-After` when available; Arena diagnostics omit SDK exception messages and request payloads. Invalid, empty or truncated model reports are saved locally to `failures/<model-id>.json` with `raw_response`, `validation_error`, `finish_reason` and token usage. Inspect this file to distinguish malformed JSON, schema problems and invalid file/line citations. The latest rejected response replaces an older failure artifact for the same model; it is never accepted as a scored report. If output was truncated, adjust that model's `max_tokens` in `models.json` or request a shorter report. To rerun only failed contestants, set `"enabled": false` on entries with existing successful reports.
+Failures include a `stage` (`provider`, `report` or `workspace`) and an actionable message. Provider failures include an HTTP status and `Retry-After` when available; Arena diagnostics omit SDK exception messages and request payloads. Invalid, empty or truncated model reports are saved locally to `failures/<model-id>.json` with `raw_response`, `validation_error`, `finish_reason` and token usage. Inspect this file to distinguish malformed JSON, schema problems and invalid file/line citations. The latest rejected response replaces an older failure artifact for the same model; it is never accepted as a scored report. If output was truncated, adjust that model's `max_tokens` in `models.json` or request a shorter report. To rerun only failed contestants, set `"enabled": false` on entries with existing successful reports. In the dashboard this is automatic: contestants with a saved report are locked and only the rest can be ticked.
 
 ## Option B: audits via VS Code or other coding agents
 
@@ -117,11 +117,11 @@ All finding paths must refer to approved snapshot files. Missing / malformed man
 ## Adjudicate, rank and compare features
 
 ```bash
-reporeview web --workspace ./arenas/project-2026
+reporeview web --workspace ./arenas/project-2026 --models ./models.json
 # Open http://127.0.0.1:8765
 ```
 
-The browser presents reports, golden-feature proposals, per-finding decisions and scoring rubrics. Imported reports can also be added directly through the dashboard. Scores persist under `judgments/`.
+The dashboard can also be started without an arena using `reporeview web --models ./models.json`; open an existing workspace or create one from a clean local Git checkout in the browser. New arenas provide nine review priorities on a 0-5 scale; zero omits a criterion, and custom criteria can be entered one per line. Relative paths entered in the panel are resolved from the directory where the CLI started the server. The panel can start provider audits, show per-model progress and partial failures, and its **Contestants to audit** checkbox group lists the enabled models from `models.json`; tick the contestants for a run (Select all and Clear selection are provided). Contestants that already have a report are locked so results are never overwritten, and models added to `models.json` later start unticked. The panel can also display/copy/download the generated prompt, import reports, adjudicate findings, set rubric scores and download the score JSON. Each audit requires a fresh confirmation before source fragments are sent to providers. Provider credentials remain in the environment of the local CLI process. `--models` is optional; without it, the manual review and import features remain available while provider audits are disabled. Scores persist under `judgments/`.
 
 CLI equivalents:
 
