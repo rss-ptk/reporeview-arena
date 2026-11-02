@@ -1,14 +1,13 @@
 // RepoReview Arena — architecture as code (LikeC4)
-// Source of truth: the code in src/reporeview_arena at commit acd1e0c (package version 0.1.0).
-// Every element names the file or symbol it stands for; every relationship was read off an
-// import, a subprocess call, an HTTP route or a file write. Where README.md and the code
-// differ, the code wins (see the report that accompanies this file).
+// Last checked against src/reporeview_arena at commit eb5bf75 (package version 0.1.0).
+// Elements and relationships reflect the current implementation, including the managed
+// per-user review history and the Control Page workflow.
 // Validate:  node <worca>/scripts/c4-check-cli.mjs docs/architecture/architecture.c4
 
 specification {
 
-  color violet #6353b8
   color arenaTeal #1f7a78
+  color violet #6353b8
 
   element actor {
     style {
@@ -158,20 +157,20 @@ model {
   // ───────────────────────────── RepoReview Arena ─────────────────────────────
 
   arena = system 'RepoReview Arena' {
-    description 'Freezes one Git commit, gives every contestant model the same audit prompt and three read-only tools, validates what comes back, and ranks contestants on human-confirmed findings. Local only: no hosted component, no database, no queue.'
+    description 'Freezes one Git commit, gives every contestant model the same audit prompt and three read-only tools, validates reports, and ranks contestants on human-confirmed findings. Local only: no hosted component or database; dashboard audit jobs run in one in-memory worker.'
     technology 'Python 3.11+ · src/reporeview_arena · no runtime dependencies (litellm is an optional extra)'
 
     // ── Client ──
 
     page = client 'Dashboard page' {
-      description 'One HTML page with inline CSS and JavaScript, built as a Python string and served by the dashboard server. English and Brazilian Portuguese, no build step. Renders report text with textContent and keeps the language choice in localStorage. Polls every 1.2 s while an audit job is queued or running.'
+      description 'One HTML page with inline CSS and JavaScript, built as a Python string and served by the dashboard server. English and Brazilian Portuguese, no build step. Provides a five-step repository-to-results workflow, saves the language choice in localStorage, and polls while an audit job is queued or running.'
       technology 'src/reporeview_arena/app.py (PAGE)'
     }
 
     // ── The process ──
 
     proc = process 'reporeview process' {
-      description 'One OS process per invocation. reporeview web keeps it alive as a loopback HTTP server; init, run, import, judge, rubric, score and prompt run once and exit. Everything it knows is in the arena folder, except the active workspace and the dashboard job table, which live in memory.'
+      description 'One OS process per invocation. reporeview web keeps it alive as a loopback HTTP server; init, run, import, judge, rubric, score and prompt run once and exit. The Control Page persists its selected repository and managed reviews in the OS application-data directory; active workspace and job state live in memory.'
       technology 'Python console script reporeview = reporeview_arena.cli:main'
 
       cli = module 'CLI' {
@@ -180,11 +179,11 @@ model {
       }
       server = module 'Dashboard server' {
         #boundary
-        description 'Stdlib ThreadingHTTPServer on 127.0.0.1. Every request needs the exact Host header; every POST also needs the per-process X-Arena-Token and a same-origin Origin. Serves the page, a JSON API and a folder browser, and holds the active workspace in memory. Also re-implements the models.json parsing that cli.py has.'
+        description 'Stdlib ThreadingHTTPServer on 127.0.0.1. Requires the exact Host header; POST requests also require the per-process X-Arena-Token and a same-origin Origin when supplied. Serves the page, folder picker and JSON API for repository selection, review history, workspace setup, audits, imports and adjudication.'
         technology 'src/reporeview_arena/app.py (create_server, Handler)'
       }
       jobs = module 'Audit job runner' {
-        description 'Runs one audit job on a daemon thread with its own asyncio loop. Only one job may be queued or running; starting another replaces the previous record. Job state is in memory and is lost on restart.'
+        description 'Runs one audit job on a daemon thread with its own asyncio loop. Only one job may be queued or running; starting another job clears prior job records. Job state is in memory and is lost on restart.'
         technology 'src/reporeview_arena/app.py (_start_audit)'
       }
       orchestrator = module 'Orchestrator' {
@@ -203,7 +202,7 @@ model {
         technology 'src/reporeview_arena/repository.py (snapshot_repo)'
       }
       workspaceBuilder = module 'Workspace builder' {
-        description 'initialize_workspace(): snapshot, manifest.json and prompt.md in one step. Also turns the dashboard review priorities (nine criteria, 0 to 5, plus custom text) into the focus section of the prompt, and checks that a folder is a valid arena.'
+        description 'initialize_workspace(): snapshot, manifest.json and prompt.md in one step. Creates CLI workspaces and managed Control Page reviews; turns nine dashboard priorities and custom text into prompt focus, and validates opened workspaces.'
         technology 'src/reporeview_arena/workspace.py'
       }
       promptBuilder = module 'Prompt builder' {
@@ -223,6 +222,10 @@ model {
         description 'load_json and save_json. save_json writes a temp file beside the target and os.replace()s it, so a crash never leaves a half-written report. workspace_file() would reject paths that escape the workspace but nothing calls it.'
         technology 'src/reporeview_arena/storage.py'
       }
+      localData = module 'Per-user data manager' {
+        description 'Chooses the OS-standard application-data directory, persists the selected repository path, lists reviews for that checkout and validates managed review IDs and paths.'
+        technology 'src/reporeview_arena/local_data.py'
+      }
       litellm = library 'LiteLLM SDK' {
         #optional
         description 'Imported lazily inside audit_one() so a plain install works for manual review. Normalises every provider behind one acompletion() call with tool support. Arena turns its own retries off (num_retries 0, max_retries 0) and does the retrying itself.'
@@ -232,8 +235,22 @@ model {
 
     // ── Data the application owns ──
 
+    appData = store 'Per-user application data' {
+      description 'OS-standard local storage used by the Control Page. Stores the selected repository and managed review workspaces; separate from CLI workspaces created at operator-chosen paths.'
+      technology 'Filesystem - app_data_directory()'
+
+      settings = artifact 'settings.json' {
+        description 'The absolute path of the selected repository root, or null. No model credentials are stored here.'
+        technology 'app data directory/settings.json'
+      }
+      reviews = artifact 'reviews/<id>/' {
+        description 'One UUID-named review workspace per Control Page review. Each contains the manifest, prompt, frozen snapshot, reports, judgments and failures; reviews are filtered by repository path.'
+        technology 'app data directory/reviews/<uuid>/'
+      }
+    }
+
     workspace = store 'Arena workspace folder' {
-      description 'One folder per arena, created by init and never nested in the target repo. Plain JSON and text files; the folder is the whole database.'
+      description 'One folder per audit, created by CLI init or the Control Page and never nested in the target repo. Plain JSON and text files are the audit record.'
       technology 'Filesystem · path given to --out and --workspace'
 
       manifest = artifact 'manifest.json' {
@@ -266,12 +283,12 @@ model {
   // ───────────────────────────── Relationships ─────────────────────────────
 
   // People
-  reviewer -> arena.proc.cli 'types init, run, import, judge, rubric, score, prompt, web'
-  reviewer -> arena.page 'opens http://127.0.0.1:8765 to open or create an arena, run audits and adjudicate'
+  reviewer -> arena.proc.cli 'runs init, run, import, judge, rubric, score, prompt, web'
+  reviewer -> arena.page 'opens http://127.0.0.1:8765 to select a repository, create or open a review, run audits and adjudicate'
   reviewer -> codingAgent 'runs the shared prompt by hand (Option B)'
 
   // Dashboard page
-  arena.page -> arena.proc.server 'fetch JSON over HTTP on loopback: /api/status, /api/data, /api/prompt, /api/jobs, POST /api/*'
+  arena.page -> arena.proc.server 'loopback JSON API: GET /api/status, /api/reviews, /api/data, /api/prompt, /api/jobs/<id>; POST /api/settings/repository, /api/reviews, /api/reviews/open, /api/folders, /api/workspace/open, /api/workspace/init, /api/run, /api/import, /api/adjudicate, /api/rubric'
 
   // CLI
   arena.proc.cli -> arena.proc.workspaceBuilder 'init: initialize_workspace()'
@@ -287,7 +304,8 @@ model {
 
   // Dashboard server
   arena.proc.server -> arena.proc.jobs 'POST /api/run: _start_audit()'
-  arena.proc.server -> arena.proc.workspaceBuilder 'POST /api/workspace/init, validate_workspace()'
+  arena.proc.server -> arena.proc.localData 'load settings, save repository selection, list and resolve managed reviews'
+  arena.proc.server -> arena.proc.workspaceBuilder 'POST /api/reviews creates a managed review; /api/workspace/init creates a chosen-path workspace; validate_workspace()'
   arena.proc.server -> arena.proc.reportValidator 'POST /api/import: parse_report() then validate_locations()'
   arena.proc.server -> arena.proc.scorer 'GET /api/data: leaderboard()'
   arena.proc.server -> arena.proc.storage 'load_json, save_json'
@@ -311,6 +329,13 @@ model {
   arena.proc.orchestrator -[reads]-> arena.workspace.manifest 'commit SHA for audit_metadata'
   arena.proc.orchestrator -[writes]-> arena.workspace.reports 'reports/<model>.json on success'
   arena.proc.orchestrator -[writes]-> arena.workspace.failures 'failures/<model>.json when a report is rejected'
+
+  // Control Page repository and review history
+  arena.proc.localData -> arena.proc.storage 'load_json(), save_json() for settings.json'
+  arena.proc.localData -[reads]-> arena.appData.reviews 'list_reviews() reads managed review manifests'
+  arena.proc.storage -[reads]-> arena.appData.settings 'load_settings()'
+  arena.proc.storage -[writes]-> arena.appData.settings 'save_repository_path()'
+  arena.proc.workspaceBuilder -[writes]-> arena.appData.reviews 'initialize_workspace() for a new Control Page review'
 
   // LiteLLM
   arena.proc.litellm -> providers 'one HTTPS request per tool round'
@@ -384,6 +409,7 @@ deployment {
       reportValidator = instanceOf arena.proc.reportValidator
       scorer = instanceOf arena.proc.scorer
       storage = instanceOf arena.proc.storage
+      localData = instanceOf arena.proc.localData
       litellm = instanceOf arena.proc.litellm {
         technology 'Optional extra'
       }
@@ -403,9 +429,9 @@ deployment {
   }
 
   stores = layer 'Data' {
-    description 'Plain files. There is no database.'
+    description 'Plain files. There is no database. The Control Page also keeps a per-user repository setting and managed review folders.'
     metadata {
-      criteria 'Stores: the files and folders the system reads or writes, meaning the arena workspace folder, models.json, the target checkout and the provider keys in the environment.'
+      criteria 'Stores: CLI workspaces, Control Page application data, models.json, the target checkout and provider keys in the environment.'
       displayOrder 'declared'
     }
 
@@ -423,6 +449,18 @@ deployment {
       reports = instanceOf arena.workspace.reports
       judgments = instanceOf arena.workspace.judgments
       failures = instanceOf arena.workspace.failures
+    }
+
+    managedData = frame 'Control Page application data' {
+      description 'OS-standard per-user data directory, separate from workspaces at operator-chosen CLI paths.'
+      technology 'Filesystem'
+      metadata {
+        criteria 'Persistent Control Page data: the selected repository path and UUID-named review workspaces.'
+        displayOrder 'declared'
+      }
+
+      settings = instanceOf arena.appData.settings
+      reviews = instanceOf arena.appData.reviews
     }
 
     inputs = frame 'Inputs and configuration' {
@@ -474,7 +512,7 @@ views {
 
   view parts of arena {
     title 'Inside the application'
-    description 'A browser page, one Python process, and an arena folder that acts as the whole database.'
+    description 'A browser page and Python process use file-based workspaces plus per-user application data for the Control Page.'
 
     include *
     autoLayout TopBottom
@@ -496,6 +534,14 @@ views {
     autoLayout LeftRight
   }
 
+  view managedData of arena.appData {
+    title 'Control Page application data'
+    description 'The selected repository path and per-repository review history persist in the OS-standard application-data directory.'
+
+    include *
+    autoLayout LeftRight
+  }
+
   dynamic view freezeFlow {
     title 'Create an arena'
     description 'reporeview init (the dashboard does the same through POST /api/workspace/init): freeze one commit, record what was kept and skipped, write the prompt.'
@@ -509,6 +555,31 @@ views {
     arena.proc.workspaceBuilder -> arena.workspace.manifest 'save_json(manifest.json)'
     arena.proc.workspaceBuilder -> arena.proc.promptBuilder 'build_prompt()'
     arena.proc.workspaceBuilder -> arena.workspace.prompt 'writes prompt.md'
+
+    autoLayout LeftRight
+  }
+
+  dynamic view controlFlow {
+    title 'Select a repository and create or open a review'
+    description 'The Control Page persists the selected checkout and its review history between app sessions.'
+
+    reviewer -> arena.page 'selects a local Git checkout'
+    arena.page -> arena.proc.server 'GET /api/status, then POST /api/settings/repository'
+    arena.proc.server -> arena.proc.localData 'load settings and save_repository_path()'
+    arena.proc.localData -> arena.proc.storage 'load_json() and save_json()'
+    arena.proc.storage -> arena.appData.settings 'read or write settings.json'
+    arena.page -> arena.proc.server 'GET /api/reviews'
+    arena.proc.server -> arena.proc.localData 'list_reviews() for the selected checkout'
+    arena.proc.localData -> arena.appData.reviews 'reads managed review manifests'
+    reviewer -> arena.page 'creates a review with priorities or opens one from history'
+    arena.page -> arena.proc.server 'POST /api/reviews or /api/reviews/open'
+    arena.proc.server -> arena.proc.workspaceBuilder 'initialize_workspace() or validate_workspace()'
+    arena.proc.workspaceBuilder -> arena.proc.snapshotter 'snapshot_repo() for a new review'
+    arena.proc.snapshotter -> git 'rev-parse, diff --name-only HEAD, ls-files -z'
+    arena.proc.snapshotter -> targetRepo 'reads allowed tracked files'
+    arena.proc.snapshotter -> arena.appData.reviews 'writes snapshot under reviews/<id>/'
+    arena.proc.workspaceBuilder -> arena.appData.reviews 'writes manifest and prompt for new review'
+    arena.page -> arena.proc.server 'GET /api/data loads the active review'
 
     autoLayout LeftRight
   }
@@ -566,7 +637,7 @@ views {
     title 'Deployment'
     description 'Everything runs on the reviewer machine. The only network traffic is LiteLLM to the model providers; the dashboard listens on 127.0.0.1 only.'
 
-    include you.*, host.*, host.app.*, services.*, stores.*, stores.workspace.*, stores.inputs.*, endpoints.*
+    include you.*, host.*, host.app.*, services.*, stores.*, stores.workspace.*, stores.managedData.*, stores.inputs.*, endpoints.*
     autoLayout TopBottom
   }
 }

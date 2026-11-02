@@ -24,6 +24,9 @@ This is an **MVP**, not a security certification, production trade gate or autom
 | JSON reports, manual import from coding agents/VS Code | Implemented |
 | Evidence-first scoring, severity override, canonical issue dedup within each report | Implemented |
 | Local browser review, golden feature scores and ranking | Implemented |
+| Five-step dashboard workflow with review priorities and guided adjudication | Implemented |
+| Saved repository selection and per-repository review history in the Control Page | Implemented |
+| Dashboard contestant selection, progress reporting and partial-failure handling | Implemented |
 | Automated bug reproduction, secure code execution sandbox | **Not implemented** |
 | Automatic cross-model semantic dedup, adversarial reviewer round | **Planned** |
 | GitHub installation / hosted SaaS / GitHub Actions commenting | **Not implemented** |
@@ -65,6 +68,7 @@ arenas/project-2026/
   snapshot/          # fixed sanitized-ish read-only source COPY
   reports/           # generated automatically once reports arrive
   judgments/         # manual validation and rubric scores
+  failures/          # diagnostics for rejected or incomplete model reports
 ```
 
 **Important:** the snapshot excludes common sensitive paths and file extensions; this is **not secret detection**. Review `snapshot/` before authorizing external AI calls. Never assume source code is safe to upload solely because the automatic denylist accepted it. Untracked files are not included; modified tracked files make initialization fail. Large and binary files are omitted and recorded in `manifest.json`.
@@ -132,7 +136,7 @@ The fixed data directory follows the operating system's standard per-user locati
 | macOS | `~/Library/Application Support/RepoReviewArena` |
 | Linux | `${XDG_DATA_HOME:-~/.local/share}/reporeview-arena` |
 
-It contains `settings.json` with only the absolute `repository_path` and a `reviews/<id>/` folder for each Control Page review. The review folder contains its manifest, snapshot, prompt, reports and judgments. Existing command workflows that use `--workspace` and `--out` continue to work with their chosen folders; they are not moved into the managed history automatically. New reviews provide nine review priorities on a 0-5 scale; zero omits a criterion, and custom criteria can be entered one per line. The panel can start provider audits, show per-model progress and partial failures, and its **Contestants to audit** checkbox group lists the enabled models from `models.json`; tick the contestants for a run (Select all and Clear selection are provided). Contestants that already have a report are locked so results are never overwritten, and models added to `models.json` later start unticked. The panel can also display/copy/download the generated prompt, import reports, adjudicate findings, set rubric scores and download the score JSON. Each audit requires a fresh confirmation before source fragments are sent to providers. Provider credentials remain in the environment of the local CLI process. `--models` is optional; without it, the manual review and import features remain available while provider audits are disabled. Scores persist under `judgments/`.
+It contains `settings.json` with only the absolute `repository_path` and a `reviews/<id>/` folder for each Control Page review. The review folder contains its manifest, snapshot, prompt, reports, judgments and any model failure diagnostics. Existing command workflows that use `--workspace` and `--out` continue to work with their chosen folders; they are not moved into the managed history automatically. New reviews provide nine review priorities on a 0-5 scale; zero omits a criterion, and custom criteria can be entered one per line. The panel can start provider audits, show per-model progress and partial failures, and its **Contestants to audit** checkbox group lists the enabled models from `models.json`; tick the contestants for a run (Select all and Clear selection are provided). Contestants that already have a report are locked so results are never overwritten, and models added to `models.json` later start unticked. The panel can also display/copy/download the generated prompt, import reports, adjudicate findings, set rubric scores and download the score JSON. Each audit requires a fresh confirmation before source fragments are sent to providers. Provider credentials remain in the environment of the local CLI process. `--models` is optional; without it, the manual review and import features remain available while provider audits are disabled. Scores persist under `judgments/`.
 
 CLI equivalents:
 
