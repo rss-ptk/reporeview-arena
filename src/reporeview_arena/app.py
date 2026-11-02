@@ -10,13 +10,23 @@ import secrets
 import threading
 import time
 from copy import deepcopy
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
+from .local_data import (
+    app_data_directory,
+    create_review_id,
+    list_reviews,
+    load_settings,
+    review_directory,
+    save_repository_path,
+)
 from .orchestrator import audit_many, model_slug
 from .reports import parse_report, validate_locations
+from .repository import validate_repository_root
 from .scoring import leaderboard
 from .storage import load_json, save_json
 from .workspace import (
@@ -44,6 +54,7 @@ button,select,input,textarea{border:1px solid #48627d;background:#16263c;color:v
 table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1px solid var(--line);text-align:left}th{font-size:11px;color:var(--muted);font-weight:600}td.num{text-align:right;font-variant-numeric:tabular-nums}tr:first-child td{font-weight:700}pre{white-space:pre-wrap;overflow-wrap:anywhere}#message{margin-top:12px;color:var(--accent)}
 @media(max-width:800px){.grid{grid-template-columns:1fr}main{padding:22px 13px}.panel{padding:14px}}
 .field-heading{display:flex;align-items:center;gap:7px}.help-wrap{position:relative;display:inline-flex;align-items:center}.help-tip{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border-radius:50%;font-size:11px;font-weight:700;line-height:1}.tooltip-content{display:none;position:absolute;left:0;top:calc(100% + 8px);z-index:30;width:min(280px,calc(100vw - 48px));padding:9px 11px;border:1px solid #48627d;border-radius:8px;background:#09111f;color:var(--ink);font-size:12px;font-weight:400;line-height:1.45;text-align:left;white-space:normal;box-shadow:0 8px 24px #0008}.help-wrap:hover .tooltip-content,.help-wrap:focus-within .tooltip-content{display:block}.help-wrap.tip-right .tooltip-content{left:auto;right:0}.field-description{font-size:12px;color:var(--muted);line-height:1.4}
+.workspace-accordions{display:grid;gap:10px}.workspace-accordion{border:1px solid var(--line);border-radius:10px;background:#101a2b}.workspace-accordion>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;font-weight:700;cursor:pointer;list-style:none}.workspace-accordion>summary::-webkit-details-marker,.workspace-accordion>summary::marker{display:none;content:""}.workspace-accordion>summary::after{content:"+";color:var(--accent);font-size:20px;line-height:1}.workspace-accordion[open]>summary::after{content:"−"}.workspace-accordion>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:7px}.workspace-accordion-body{border-top:1px solid var(--line);padding:14px}.workspace-accordion-body>.formrow:first-child{margin-top:0}.workspace-accordion .focus-config{grid-column:auto;margin:16px 0 12px}.workspace-accordion .focus-submit{grid-column:auto;margin-top:12px}
 .focus-config{grid-column:1/-1;width:100%;min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px;margin:16px 0 12px}.focus-config legend{padding:0 6px;font-weight:700}.focus-config legend .help-wrap{margin-left:4px}.focus-criteria-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:10px 0 14px}.focus-criterion{min-width:0;border:1px solid var(--line);border-radius:8px;background:#101a2b;padding:10px}.focus-criterion .field-heading{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:5px 6px}.focus-criterion label{grid-column:1;grid-row:1;color:var(--ink);line-height:1.35}.focus-criterion .help-wrap{grid-column:2;grid-row:1}.focus-criterion .tooltip-content{left:auto;right:0}.focus-priority-level{grid-column:1/-1;grid-row:2;color:var(--accent);font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}.priority-slider{display:block;width:100%;height:26px;margin:7px 0 0;padding:0;border:0;background:transparent;accent-color:var(--accent);cursor:pointer}.priority-slider:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.custom-focus-field{max-width:100%}.focus-submit{grid-column:1/-1;display:flex;justify-content:flex-end}
 @media(max-width:1050px){.focus-criteria-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:700px){.focus-criteria-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -54,25 +65,25 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 </style></head><body><main>
 <header><div><div class="eyebrow" data-i18n="independentAudits">Independent LLM code audits</div><h1>RepoReview <span class="gold">Arena</span></h1><div id="project" class="meta" data-i18n="loadingCompetition">Loading competition…</div></div><div class="header-actions"><span id="language-label" class="language-label" data-i18n="languageLabel">Language</span><div id="language-toggle" class="language-toggle" role="group" aria-labelledby="language-label"><button type="button" class="language-option" data-language="en" aria-pressed="true">EN</button><button type="button" class="language-option" data-language="pt-BR" aria-pressed="false">PT-BR</button></div><button data-i18n="refresh" onclick="reload()">Refresh</button><button data-i18n="exportScorecard" onclick="exportJson()">Export scorecard</button></div></header>
 <section class="panel" id="workspace-panel">
-<div class="row"><div><div class="eyebrow" data-i18n="localWorkspace">Local workspace</div><h2 data-i18n="openOrCreateArena">Open or create an arena</h2></div><span id="workspace-active" class="meta" data-i18n="noArenaSelected">No arena selected</span></div>
-<p class="muted" data-i18n="workspaceIntro">Open an existing arena to continue, or create one from a clean local Git checkout.</p>
-<div class="grid">
-<div><h3 data-i18n="openExistingArena">Open an existing arena</h3><div class="formrow">
-<div class="field"><div class="field-heading"><label for="workspace-path" data-i18n="workspacePath">Workspace path</label><span class="help-wrap"><button class="help-tip" type="button" data-i18n-aria-label="helpWorkspacePath" aria-describedby="workspace-path-help">?</button><span class="tooltip-content" id="workspace-path-help" role="tooltip" data-i18n="workspacePathHelp">Path to an existing RepoReview Arena folder containing manifest.json. Reports, the frozen snapshot, prompt, and judgments are stored here. Relative paths use the directory where you started reporeview web.</span></span><button class="field-browse" type="button" data-i18n="browseFolder" data-i18n-title="browseFolderTitle" title="Browse for an existing arena" onclick="openFolderPicker()">Browse</button></div><input id="workspace-path" class="pathinput" aria-describedby="workspace-path-help" data-i18n-placeholder="workspacePathPlaceholder" placeholder="Path to arena folder"><small class="field-description" data-i18n="workspacePathDescription">Existing arena folder; it must contain manifest.json.</small></div>
-<button class="primary" data-i18n="openArena" data-i18n-title="openArenaTitle" title="Load the existing arena at this path." onclick="openWorkspace()">Open arena</button></div></div>
-<div><h3 data-i18n="createNewArena">Create a new arena</h3><div class="formrow">
-<div class="field"><div class="field-heading"><label for="repo-path" data-i18n="gitRepositoryRoot">Git repository root</label><span class="help-wrap"><button class="help-tip" type="button" data-i18n-aria-label="helpGitRepositoryRoot" aria-describedby="repo-path-help">?</button><span class="tooltip-content" id="repo-path-help" role="tooltip" data-i18n="gitRepositoryRootHelp">Path to the root of the local Git checkout you want to audit. The checkout must be clean; the Arena snapshots committed files from this repository.</span></span></div><input id="repo-path" class="pathinput" aria-describedby="repo-path-help" data-i18n-placeholder="gitRepositoryPlaceholder" placeholder="Path to local Git repository"><small class="field-description" data-i18n="gitRepositoryRootDescription">Root folder of a clean local Git checkout.</small></div>
-<div class="field"><div class="field-heading"><label for="out-path" data-i18n="newWorkspacePath">New workspace path</label><span class="help-wrap tip-right"><button class="help-tip" type="button" data-i18n-aria-label="helpNewWorkspacePath" aria-describedby="out-path-help">?</button><span class="tooltip-content" id="out-path-help" role="tooltip" data-i18n="newWorkspacePathHelp">Path to a new folder for this arena. It must not already exist. The Arena writes the manifest, frozen source snapshot, generated prompt, reports, and judgments here. Relative paths use the directory where you started reporeview web.</span></span></div><input id="out-path" class="pathinput" aria-describedby="out-path-help" data-i18n-placeholder="newWorkspacePathPlaceholder" placeholder="Path to new arena folder"><small class="field-description" data-i18n="newWorkspacePathDescription">A new folder where this arena's files will be saved.</small></div>
+<div class="row"><div><div class="eyebrow" data-i18n="localWorkspace">Local workspace</div><h2 data-i18n="repositorySettings">Repository</h2></div><span class="meta"><span data-i18n="activeReview">Active review</span>: <span id="workspace-active" data-i18n="noArenaSelected">No review loaded</span></span></div>
+<p class="muted" data-i18n="repositoryIntro">Choose the Git checkout to review. Review folders are managed automatically.</p>
+<div class="formrow">
+<div class="field"><div class="field-heading"><label for="repo-path" data-i18n="gitRepositoryRoot">Git repository root</label><span class="help-wrap"><button class="help-tip" type="button" data-i18n-aria-label="helpGitRepositoryRoot" aria-describedby="repo-path-help">?</button><span class="tooltip-content" id="repo-path-help" role="tooltip" data-i18n="gitRepositoryRootHelp">Path to the root of the local Git checkout you want to review.</span></span><button class="field-browse" type="button" data-i18n="browseFolder" data-i18n-title="browseFolderTitle" title="Browse for a Git repository" onclick="openFolderPicker()">Browse</button></div><input id="repo-path" class="pathinput" aria-describedby="repo-path-help" data-i18n-placeholder="gitRepositoryPlaceholder" placeholder="Path to local Git repository"><small class="field-description" data-i18n="gitRepositoryRootDescription">Root folder of a local Git checkout.</small></div>
+<button id="save-repository-button" type="button" data-i18n="saveRepository" onclick="saveRepository()" disabled>Save repository</button>
 </div>
+<div id="repository-message" role="status"></div>
+<div class="formrow">
+<div class="field"><label for="review-history" data-i18n="reviewHistory">Previous reviews for this repository</label><select id="review-history" data-i18n-aria-label="reviewHistory" aria-label="Previous reviews"><option value="" data-i18n="noPreviousReviews">No saved reviews</option></select></div>
+<button id="open-review-button" type="button" data-i18n="openReview" onclick="openReview()" disabled>Open review</button>
+<button id="create-review-button" class="primary" type="button" data-i18n="createReview" onclick="createReview()" disabled>Create review</button>
 </div>
 <fieldset class="focus-config" aria-describedby="review-focus-guidance">
-<legend><span data-i18n="reviewFocus">Review focus</span><span class="help-wrap"><button class="help-tip" type="button" data-i18n-aria-label="helpReviewFocus" aria-describedby="review-focus-help">?</button><span class="tooltip-content" id="review-focus-help" role="tooltip" data-i18n="reviewFocusHelp">Set how much each criterion should guide the audit. A value of 0 omits that criterion.</span></span></legend>
+<legend><span data-i18n="reviewFocus">Review focus</span><span class="help-wrap"><button class="help-tip" type="button" data-i18n-aria-label="helpReviewFocus" aria-describedby="review-focus-help">?</button><span class="tooltip-content" id="review-focus-help" role="tooltip" data-i18n="reviewFocusHelp">Set how much each criterion should guide the review. A value of 0 omits that criterion.</span></span></legend>
 <p id="review-focus-guidance" class="field-description" data-i18n="reviewFocusDescription">Set each priority from 0 (omit) to 5 (critical). Priorities guide attention; evidence standards stay the same.</p>
 <div id="focus-criteria" class="focus-criteria-grid">__FOCUS_CRITERIA__</div>
 <div class="field custom-focus-field"><div class="field-heading"><label for="focus-custom-text" data-i18n="customCriteria">Custom criteria</label><span class="help-wrap tip-right"><button class="help-tip" type="button" data-i18n-aria-label="helpCustomCriteria" aria-describedby="focus-custom-help">?</button><span class="tooltip-content" id="focus-custom-help" role="tooltip" data-i18n="customCriteriaHelp">Add additional review criteria, one per line. This text is included as written in the generated prompt.</span></span></div><textarea id="focus-custom-text" maxlength="__MAX_CUSTOM_FOCUS_LENGTH__" data-i18n-placeholder="customCriteriaPlaceholder" placeholder="One custom criterion per line" aria-describedby="focus-custom-help review-focus-guidance"></textarea><small class="field-description" data-i18n="customCriteriaDescription">Optional, up to 4,000 characters. Use one criterion per line.</small></div>
 </fieldset>
-<div class="focus-submit"><button class="primary" data-i18n="createArena" data-i18n-title="createArenaTitle" title="Create the snapshot and review prompt in the new workspace folder." onclick="initializeWorkspace()">Create arena</button></div>
-</div><div id="workspace-message" role="status"></div></section>
+<div id="workspace-message" role="status"></div></section>
 <div id="arena-content" hidden>
 <section><div class="eyebrow" data-i18n="leaderboard">Leaderboard</div><h2 data-i18n="verifiedResultsOnly">Verified results only</h2><div id="summary" class="cards"></div></section>
 <section class="panel"><div class="row"><h2 data-i18n="scoreboard">Scoreboard</h2><button data-i18n="downloadScoreJson" onclick="downloadScore()">Download score JSON</button></div><div style="overflow:auto"><table id="board"></table></div><p class="muted" data-i18n="scoreboardExplanation">Unreviewed findings score zero. Confirmed issues score by reviewed severity. Penalties apply for false positives.</p></section>
@@ -96,6 +107,7 @@ let state = {};
 let dashboardStatus = {};
 let pollTimer = null;
 let contestantSelection = null;
+let initialRepositoryLoaded = false;
 let folderPickerTarget = null;
 let folderPickerData = null;
 let folderRequestId = 0;
@@ -106,56 +118,74 @@ const translations = {
     languageLabel: "Language",
     independentAudits: "Independent LLM code audits",
     loadingCompetition: "Loading competition…",
-    selectWorkspaceSubtitle: "Select or create a local audit workspace",
+    selectWorkspaceSubtitle: "Select a Git repository to create or open a review",
     projectSummary: "{repo} | {commit} | {count} reviewed files",
     refresh: "Refresh",
     exportScorecard: "Export scorecard",
-    localWorkspace: "Local workspace",
-    openOrCreateArena: "Open or create an arena",
-    noArenaSelected: "No arena selected",
-    workspaceIntro: "Open an existing arena to continue, or create one from a clean local Git checkout.",
-    openExistingArena: "Open an existing arena",
-    workspacePath: "Workspace path",
-    helpWorkspacePath: "Help for Workspace path",
+    localWorkspace: "Review setup",
+    repositorySettings: "Git repository",
+    repositoryIntro: "Choose the Git checkout to review. Review folders are managed automatically.",
+    saveRepository: "Save repository",
+    repositorySaved: "Repository saved",
+    repositoryNotConfigured: "Choose and save the root of a Git checkout before creating a review.",
+    repositorySettingsInvalid: "The saved repository settings could not be read. Choose and save the repository again.",
+    repositoryUnavailable: "The saved Git repository is not available at this path. Choose its current root and save again.",
+    repositoryDirectoryRequired: "Choose an existing directory.",
+    repositoryGitRequired: "Choose the root of a valid Git repository.",
+    repositoryRootRequired: "Choose the Git repository root, not a subdirectory.",
+    repositoryDirty: "This Git checkout has tracked changes. Commit or stash them before creating a review.",
+    reviewHistory: "Previous reviews for this repository",
+    noPreviousReviews: "No saved reviews",
+    openReview: "Open review",
+    createReview: "Create new review",
+    reviewCreated: "Review created and selected",
+    reviewOpened: "Review opened",
+    openOrCreateArena: "Continue a review or start a new one",
+    activeReview: "Active review",
+    noArenaSelected: "No review loaded",
+    workspaceIntro: "Load a saved review folder, or create a new review from a clean Git repository.",
+    openExistingArena: "Continue a saved review",
+    workspacePath: "Saved review folder",
+    helpWorkspacePath: "Help for saved review folder",
     browseFolder: "Browse",
-    browseFolderTitle: "Browse for an existing arena",
-    folderDialogTitle: "Choose an arena folder",
-    folderDialogIntro: "Navigate to a folder containing manifest.json and select it. Relative paths start from the directory where reporeview web was launched.",
+    browseFolderTitle: "Browse for a Git repository",
+    folderDialogTitle: "Choose a Git repository root",
+    folderDialogIntro: "Navigate to the root of a local Git checkout and select it. Relative paths start from the directory where reporeview web was launched.",
     folderListLabel: "Folders in this directory",
     close: "Close",
     folderUp: "Parent folder",
-    chooseCurrentFolder: "Use this folder",
+    chooseCurrentFolder: "Use this repository",
     startAtLaunchFolder: "Start at launch folder",
     loadingFolders: "Loading folders…",
     folderPathNotDirectory: "The selected path is not an existing folder.",
     folderReadFailed: "This folder cannot be read.",
-    currentArenaFolder: "This folder contains manifest.json.",
-    notArenaFolder: "This folder is not an arena; manifest.json is missing.",
+    currentArenaFolder: "This is the root of a Git repository.",
+    notArenaFolder: "This folder is not the root of a Git repository.",
     noSubfolders: "No subfolders.",
-    arenaFolder: "Arena",
+    arenaFolder: "Git repository",
     regularFolder: "Folder",
     moreFolders: "Only the first {count} folders are shown. Open a folder to continue browsing.",
     openFolder: "Open folder {name}",
-    workspacePathHelp: "Path to an existing RepoReview Arena folder containing manifest.json. Reports, the frozen snapshot, prompt, and judgments are stored here. Relative paths use the directory where you started reporeview web.",
-    workspacePathPlaceholder: "Path to arena folder",
-    workspacePathDescription: "Existing arena folder; it must contain manifest.json.",
-    openArena: "Open arena",
-    openArenaTitle: "Load the existing arena at this path.",
-    createNewArena: "Create a new arena",
+    workspacePathHelp: "Select a folder containing a saved review's manifest, snapshot, prompt, reports, and judgments. Relative paths use the directory where you started reporeview web.",
+    workspacePathPlaceholder: "Path to saved review folder",
+    workspacePathDescription: "Folder with this review's snapshot, prompt, reports, and judgments.",
+    openArena: "Load saved review",
+    openArenaTitle: "Load the saved review from this folder.",
+    createNewArena: "Start a review from Git",
     gitRepositoryRoot: "Git repository root",
     helpGitRepositoryRoot: "Help for Git repository root",
     gitRepositoryRootHelp: "Path to the root of the local Git checkout you want to audit. The checkout must be clean; the Arena snapshots committed files from this repository.",
     gitRepositoryPlaceholder: "Path to local Git repository",
     gitRepositoryRootDescription: "Root folder of a clean local Git checkout.",
-    newWorkspacePath: "New workspace path",
-    helpNewWorkspacePath: "Help for New workspace path",
-    newWorkspacePathHelp: "Path to a new folder for this arena. It must not already exist. The Arena writes the manifest, frozen source snapshot, generated prompt, reports, and judgments here. Relative paths use the directory where you started reporeview web.",
-    newWorkspacePathPlaceholder: "Path to new arena folder",
-    newWorkspacePathDescription: "A new folder where this arena's files will be saved.",
-    reviewFocus: "Review focus",
+    newWorkspacePath: "New review folder",
+    helpNewWorkspacePath: "Help for new review folder",
+    newWorkspacePathHelp: "Choose a folder that does not exist yet. The new review's snapshot, prompt, reports, and judgments will be saved there. Relative paths use the directory where you started reporeview web.",
+    newWorkspacePathPlaceholder: "Path to new review folder",
+    newWorkspacePathDescription: "A new folder where this review's files will be saved.",
+    reviewFocus: "Priorities for the new review",
     helpReviewFocus: "Help for Review focus",
     reviewFocusHelp: "Set how much each criterion should guide the audit. A value of 0 omits that criterion. Higher values guide attention without changing evidence standards.",
-    reviewFocusDescription: "Choose a priority from 0 (omit) to 5 (critical). Criteria with value 0 are left out of the generated prompt.",
+    reviewFocusDescription: "Choose priorities from 0 (omit) to 5 (critical). These settings apply only when creating a new review.",
     priorityAriaValue: "Priority {value} of 5: {label}.",
     priorityOff: "Omitted",
     priorityLow: "Low",
@@ -195,8 +225,8 @@ const translations = {
     criterionTestingObservability: "Testing and observability",
     helpCriterionTestingObservability: "Help for Testing and observability",
     criterionTestingObservabilityHelp: "Assess whether important behavior is covered and failures can be diagnosed.",
-    createArena: "Create arena",
-    createArenaTitle: "Create the snapshot and review prompt in the new workspace folder.",
+    createArena: "Create review from Git",
+    createArenaTitle: "Snapshot this repository and save a new review in the new folder.",
     leaderboard: "Leaderboard",
     verifiedResultsOnly: "Verified results only",
     scoreboard: "Scoreboard",
@@ -294,56 +324,74 @@ const translations = {
     languageLabel: "Idioma",
     independentAudits: "Auditorias independentes de código com LLMs",
     loadingCompetition: "Carregando arena…",
-    selectWorkspaceSubtitle: "Selecione ou crie uma arena local para começar",
+    selectWorkspaceSubtitle: "Selecione um repositório Git para criar ou abrir uma revisão",
     projectSummary: "{repo} | {commit} | {count} arquivos analisados",
     refresh: "Atualizar",
     exportScorecard: "Exportar quadro de pontuação",
-    localWorkspace: "Arena local",
-    openOrCreateArena: "Abrir ou criar uma arena",
-    noArenaSelected: "Nenhuma arena selecionada",
-    workspaceIntro: "Abra uma arena existente ou crie uma a partir de um repositório Git local sem alterações pendentes.",
-    openExistingArena: "Abrir arena existente",
-    workspacePath: "Caminho da arena",
-    helpWorkspacePath: "Ajuda sobre o caminho da arena",
+    localWorkspace: "Configuração da revisão",
+    repositorySettings: "Reposit\u00f3rio Git",
+    repositoryIntro: "Escolha o checkout Git para revisar. As pastas das revis\u00f5es ser\u00e3o gerenciadas automaticamente.",
+    saveRepository: "Salvar reposit\u00f3rio",
+    repositorySaved: "Reposit\u00f3rio salvo",
+    repositoryNotConfigured: "Escolha e salve a raiz de um checkout Git antes de criar uma revis\u00e3o.",
+    repositorySettingsInvalid: "N\u00e3o foi poss\u00edvel ler as configura\u00e7\u00f5es salvas do reposit\u00f3rio. Escolha e salve o reposit\u00f3rio novamente.",
+    repositoryUnavailable: "O reposit\u00f3rio Git salvo n\u00e3o est\u00e1 dispon\u00edvel neste caminho. Escolha a raiz atual e salve novamente.",
+    repositoryDirectoryRequired: "Escolha uma pasta existente.",
+    repositoryGitRequired: "Escolha a raiz de um reposit\u00f3rio Git v\u00e1lido.",
+    repositoryRootRequired: "Escolha a raiz do reposit\u00f3rio Git, n\u00e3o uma subpasta.",
+    repositoryDirty: "Este checkout Git tem altera\u00e7\u00f5es em arquivos controlados. Fa\u00e7a commit ou stash antes de criar uma revis\u00e3o.",
+    reviewHistory: "Revis\u00f5es anteriores deste reposit\u00f3rio",
+    noPreviousReviews: "Nenhuma revis\u00e3o salva",
+    openReview: "Abrir revis\u00e3o",
+    createReview: "Criar nova revis\u00e3o",
+    reviewCreated: "Revis\u00e3o criada e selecionada",
+    reviewOpened: "Revis\u00e3o aberta",
+    openOrCreateArena: "Continuar uma revisão ou começar outra",
+    activeReview: "Revisão ativa",
+    noArenaSelected: "Nenhuma revisão carregada",
+    workspaceIntro: "Carregue uma pasta de revisão salva ou crie uma revisão a partir de um repositório Git sem alterações pendentes.",
+    openExistingArena: "Continuar uma revisão salva",
+    workspacePath: "Pasta da revisão salva",
+    helpWorkspacePath: "Ajuda sobre a pasta de revisão salva",
     browseFolder: "Procurar",
-    browseFolderTitle: "Procurar uma arena existente",
-    folderDialogTitle: "Escolha a pasta da arena",
-    folderDialogIntro: "Navegue até uma pasta com manifest.json e selecione-a. Caminhos relativos partem da pasta em que reporeview web foi iniciado.",
+    browseFolderTitle: "Procurar um repositório Git",
+    folderDialogTitle: "Escolha a raiz de um repositório Git",
+    folderDialogIntro: "Navegue até a raiz de um checkout Git local e selecione-a. Caminhos relativos partem da pasta em que reporeview web foi iniciado.",
     folderListLabel: "Pastas neste diretório",
     close: "Fechar",
     folderUp: "Pasta acima",
-    chooseCurrentFolder: "Usar esta pasta",
+    chooseCurrentFolder: "Usar este repositório",
     startAtLaunchFolder: "Ir para a pasta inicial",
     loadingFolders: "Carregando pastas…",
     folderPathNotDirectory: "O caminho escolhido não corresponde a uma pasta existente.",
     folderReadFailed: "Não foi possível ler esta pasta.",
-    currentArenaFolder: "Esta pasta contém manifest.json.",
-    notArenaFolder: "Esta pasta não é uma arena; falta o arquivo manifest.json.",
+    currentArenaFolder: "Esta pasta é a raiz de um repositório Git.",
+    notArenaFolder: "Esta pasta não é a raiz de um repositório Git.",
     noSubfolders: "Não há subpastas.",
-    arenaFolder: "Arena",
+    arenaFolder: "Repositório Git",
     regularFolder: "Pasta",
     moreFolders: "Exibindo apenas as primeiras {count} pastas. Abra uma pasta para continuar navegando.",
     openFolder: "Abrir a pasta {name}",
-    workspacePathHelp: "Caminho para uma pasta de arena RepoReview existente com o arquivo manifest.json. Os relatórios, o snapshot congelado, a instrução e as avaliações ficam aqui. Caminhos relativos usam a pasta em que você iniciou reporeview web.",
-    workspacePathPlaceholder: "Caminho da pasta da arena",
-    workspacePathDescription: "Pasta de uma arena existente; precisa conter manifest.json.",
-    openArena: "Abrir arena",
-    openArenaTitle: "Carrega a arena existente neste caminho.",
-    createNewArena: "Criar nova arena",
+    workspacePathHelp: "Selecione uma pasta com o manifesto, snapshot, instrução, relatórios e avaliações de uma revisão salva. Caminhos relativos usam a pasta em que você iniciou reporeview web.",
+    workspacePathPlaceholder: "Caminho da pasta de revisão salva",
+    workspacePathDescription: "Pasta com o snapshot, a instrução, os relatórios e as avaliações desta revisão.",
+    openArena: "Carregar revisão salva",
+    openArenaTitle: "Carrega a revisão salva nesta pasta.",
+    createNewArena: "Iniciar revisão a partir do Git",
     gitRepositoryRoot: "Raiz do repositório Git",
     helpGitRepositoryRoot: "Ajuda sobre a raiz do repositório Git",
     gitRepositoryRootHelp: "Caminho para a raiz do checkout Git local que será auditado. O checkout precisa estar limpo; a arena cria um snapshot dos arquivos commitados.",
     gitRepositoryPlaceholder: "Caminho do repositório Git local",
     gitRepositoryRootDescription: "Pasta raiz de um checkout Git local sem alterações pendentes.",
-    newWorkspacePath: "Caminho da nova arena",
-    helpNewWorkspacePath: "Ajuda sobre o caminho da nova arena",
-    newWorkspacePathHelp: "Caminho de uma pasta nova para esta arena. Ela ainda não pode existir. A arena salvará aqui o manifesto, o snapshot do código, a instrução gerada, os relatórios e as avaliações. Caminhos relativos usam a pasta em que você iniciou reporeview web.",
-    newWorkspacePathPlaceholder: "Caminho para a nova pasta da arena",
-    newWorkspacePathDescription: "Pasta nova onde os arquivos da arena serão salvos.",
-    reviewFocus: "Foco da revisão",
+    newWorkspacePath: "Pasta da nova revisão",
+    helpNewWorkspacePath: "Ajuda sobre a nova pasta de revisão",
+    newWorkspacePathHelp: "Escolha uma pasta que ainda não exista. O snapshot, a instrução, os relatórios e as avaliações da nova revisão serão salvos nela. Caminhos relativos usam a pasta em que você iniciou reporeview web.",
+    newWorkspacePathPlaceholder: "Caminho da nova pasta de revisão",
+    newWorkspacePathDescription: "Pasta nova onde os arquivos desta revisão serão salvos.",
+    reviewFocus: "Prioridades da nova revisão",
     helpReviewFocus: "Ajuda sobre o foco da revisão",
     reviewFocusHelp: "Defina quanto cada critério deve orientar a auditoria. O valor 0 omite o critério. Valores maiores aumentam a atenção sem alterar o padrão de evidências.",
-    reviewFocusDescription: "Escolha uma prioridade de 0 (omitir) a 5 (crítica). Critérios com valor 0 não entram na instrução gerada.",
+    reviewFocusDescription: "Escolha prioridades de 0 (omitir) a 5 (crítica). Essas opções só são usadas ao criar uma nova revisão.",
     priorityAriaValue: "Prioridade {value} de 5: {label}.",
     priorityOff: "Omitido",
     priorityLow: "Baixa",
@@ -383,8 +431,8 @@ const translations = {
     criterionTestingObservability: "Testes e observabilidade",
     helpCriterionTestingObservability: "Ajuda sobre testes e observabilidade",
     criterionTestingObservabilityHelp: "Avalie se os comportamentos importantes estão cobertos e se falhas podem ser diagnosticadas.",
-    createArena: "Criar arena",
-    createArenaTitle: "Cria o snapshot e a instrução de revisão na nova pasta da arena.",
+    createArena: "Criar revisão a partir do Git",
+    createArenaTitle: "Cria um snapshot deste repositório e salva a nova revisão na pasta indicada.",
     leaderboard: "Classificação",
     verifiedResultsOnly: "Somente resultados verificados",
     scoreboard: "Placar",
@@ -588,8 +636,7 @@ function applyLanguage() {
     button.setAttribute("aria-pressed", String(button.dataset.language === language));
   });
   refreshPriorityLabels();
-  const active = document.getElementById("workspace-active");
-  active.textContent = dashboardStatus.workspace || t("noArenaSelected");
+  updateActiveReviewLabel();
   renderProjectLabel();
   const currentReport = state.reports && state.reports[document.getElementById("model").value];
   if (currentReport && !currentReport.summary) {
@@ -627,6 +674,26 @@ function setMessage(id, text) {
   delete element.dataset.translationValues;
   element.textContent = text || "";
 }
+function setRepositoryError(id, error) {
+  const message = String(error.message || "");
+  if (message.includes("Git tracked files are dirty")) {
+    setLocalizedMessage(id, "repositoryDirty");
+    return;
+  }
+  if (message === "--repo must be an existing directory") {
+    setLocalizedMessage(id, "repositoryDirectoryRequired");
+    return;
+  }
+  if (message === "--repo must be a valid Git repository") {
+    setLocalizedMessage(id, "repositoryGitRequired");
+    return;
+  }
+  if (message === "Pass the Git repository root, not a subdirectory") {
+    setLocalizedMessage(id, "repositoryRootRequired");
+    return;
+  }
+  setMessage(id, message);
+}
 async function api(path, payload) {
   const hasPayload = payload !== undefined;
   const response = await fetch(path, {
@@ -647,7 +714,7 @@ function saveFile(name, content, type) {
 }
 
 function openFolderPicker() {
-  folderPickerTarget = "workspace-path";
+  folderPickerTarget = "repo-path";
   const dialog = document.getElementById("folder-dialog");
   if (!dialog.open) dialog.showModal();
   browseFolder(document.getElementById(folderPickerTarget).value.trim());
@@ -681,10 +748,10 @@ async function browseFolder(path) {
 function renderFolderPicker(data) {
   document.getElementById("folder-current").textContent = data.path;
   document.getElementById("folder-current-kind").textContent = t(
-    data.is_workspace ? "currentArenaFolder" : "notArenaFolder"
+    data.is_git_repository ? "currentArenaFolder" : "notArenaFolder"
   );
   document.getElementById("folder-parent").disabled = !data.parent;
-  document.getElementById("folder-select").disabled = !data.is_workspace;
+  document.getElementById("folder-select").disabled = !data.is_git_repository;
   const list = clear("folder-list");
   const directories = data.directories || [];
   if (!directories.length) {
@@ -701,7 +768,7 @@ function renderFolderPicker(data) {
     button.setAttribute("aria-label", t("openFolder", { name: directory.name }));
     button.append(
       node("span", "", directory.name),
-      node("span", "folder-badge", t(directory.is_workspace ? "arenaFolder" : "regularFolder")),
+      node("span", "folder-badge", t(directory.is_git_repository ? "arenaFolder" : "regularFolder")),
     );
     button.onclick = function () { browseFolder(directory.path); };
     item.append(button);
@@ -716,13 +783,14 @@ function browseParentFolder() {
 }
 
 function chooseFolder() {
-  if (!folderPickerData || !folderPickerData.is_workspace || !folderPickerTarget) return;
+  if (!folderPickerData || !folderPickerData.is_git_repository || !folderPickerTarget) return;
   const input = document.getElementById(folderPickerTarget);
   input.value = folderPickerData.path;
   document.getElementById("folder-dialog").close();
   folderPickerData = null;
   folderPickerTarget = null;
   input.focus();
+  updateWorkspaceActions();
 }
 
 function closeFolderPicker() {
@@ -731,6 +799,49 @@ function closeFolderPicker() {
   if (dialog.open) dialog.close();
   folderPickerData = null;
   folderPickerTarget = null;
+}
+
+function updateWorkspaceActions() {
+  const repositoryInput = document.getElementById("repo-path");
+  const selectedPath = repositoryInput.value.trim();
+  const savedPath = dashboardStatus.repository_path || "";
+  document.getElementById("save-repository-button").disabled =
+    !selectedPath || (selectedPath === savedPath && dashboardStatus.repository_available);
+  document.getElementById("create-review-button").disabled =
+    !dashboardStatus.repository_available || selectedPath !== savedPath;
+  document.getElementById("open-review-button").disabled =
+    !document.getElementById("review-history").value;
+}
+
+async function renderReviewHistory() {
+  const data = await api("/api/reviews");
+  const select = clear("review-history");
+  const reviews = data.reviews || [];
+  if (!reviews.length) {
+    option(select, "", t("noPreviousReviews"), "noPreviousReviews");
+    select.disabled = true;
+    return;
+  }
+  reviews.forEach(function (review) {
+    const date = new Date(review.created_at);
+    const dateText = Number.isNaN(date.getTime()) ? "" : date.toLocaleString();
+    const label = [review.repo_name, review.commit.slice(0, 12), dateText]
+      .filter(Boolean).join(" | ");
+    option(select, review.id, label);
+  });
+  select.disabled = false;
+  if (dashboardStatus.review_id && reviews.some(function (item) {
+    return item.id === dashboardStatus.review_id;
+  })) {
+    select.value = dashboardStatus.review_id;
+  }
+}
+
+function updateActiveReviewLabel() {
+  const label = document.getElementById("workspace-active");
+  label.textContent = state.manifest
+    ? state.manifest.repo_name + " | " + state.manifest.commit.slice(0, 12)
+    : t("noArenaSelected");
 }
 
 async function reload() {
@@ -745,13 +856,30 @@ async function reload() {
       setMessage("prompt-message", "");
     }
     const hasWorkspace = !!dashboardStatus.workspace;
+    if (!initialRepositoryLoaded) {
+      document.getElementById("repo-path").value = dashboardStatus.repository_path || "";
+      initialRepositoryLoaded = true;
+    }
+    const repositoryMessage = document.getElementById("repository-message");
+    const repositoryStateMessages = [
+      "repositoryNotConfigured", "repositorySettingsInvalid", "repositoryUnavailable",
+    ];
+    if (dashboardStatus.settings_error) {
+      setLocalizedMessage("repository-message", "repositorySettingsInvalid");
+    } else if (!dashboardStatus.repository_path) {
+      setLocalizedMessage("repository-message", "repositoryNotConfigured");
+    } else if (!dashboardStatus.repository_available) {
+      setLocalizedMessage("repository-message", "repositoryUnavailable");
+    } else if (repositoryStateMessages.includes(repositoryMessage.dataset.translationKey)) {
+      setMessage("repository-message", "");
+    }
+    await renderReviewHistory();
     const exportButton = document.querySelector('button[onclick="exportJson()"]');
     if (exportButton) exportButton.disabled = !hasWorkspace;
     document.getElementById("arena-content").hidden = !hasWorkspace;
-    document.getElementById("workspace-active").textContent =
-      dashboardStatus.workspace || t("noArenaSelected");
     if (hasWorkspace) {
       state = await api("/api/data");
+      updateActiveReviewLabel();
       renderProjectLabel();
       const previousModel = document.getElementById("model").value;
       const models = clear("model");
@@ -763,6 +891,7 @@ async function reload() {
       renderModels();
     } else {
       state = { reports: {}, judgments: {}, leaderboard: [] };
+      updateActiveReviewLabel();
       renderProjectLabel();
       clear("model");
       clear("summary");
@@ -776,6 +905,7 @@ async function reload() {
       setMessage("contestants-count", "");
     }
     renderJob(dashboardStatus.job);
+    updateWorkspaceActions();
     clearTimeout(pollTimer);
     if (dashboardStatus.job && ["queued", "running"].includes(dashboardStatus.job.status)) {
       pollTimer = setTimeout(reload, 1200);
@@ -1039,35 +1169,45 @@ function showReport() {
     root.append(article);
   });
 }
-async function openWorkspace() {
+async function saveRepository() {
   try {
-    await api("/api/workspace/open", {
-      path: document.getElementById("workspace-path").value,
+    const result = await api("/api/settings/repository", {
+      path: document.getElementById("repo-path").value,
     });
-    setLocalizedMessage("workspace-message", "arenaOpened");
+    document.getElementById("repo-path").value = result.repository_path;
+    setLocalizedMessage("repository-message", "repositorySaved");
     await reload();
   } catch (error) {
-    setMessage("workspace-message", error.message);
+    setRepositoryError("repository-message", error);
   }
 }
-async function initializeWorkspace() {
+async function openReview() {
+  try {
+    const reviewId = document.getElementById("review-history").value;
+    await api("/api/reviews/open", { id: reviewId });
+    setLocalizedMessage("workspace-message", "reviewOpened");
+    await reload();
+  } catch (error) {
+    setRepositoryError("workspace-message", error);
+  }
+}
+async function createReview() {
   try {
     const criteria = {};
     document.querySelectorAll(".priority-slider").forEach(function (slider) {
       criteria[slider.dataset.priorityId] = Number(slider.value);
     });
-    await api("/api/workspace/init", {
-      repo: document.getElementById("repo-path").value,
-      out: document.getElementById("out-path").value,
+    await api("/api/reviews", {
       review_focus: {
         criteria: criteria,
         custom_text: document.getElementById("focus-custom-text").value,
       },
     });
-    setLocalizedMessage("workspace-message", "arenaCreated");
+    updateWorkspaceActions();
+    setLocalizedMessage("workspace-message", "reviewCreated");
     await reload();
   } catch (error) {
-    setMessage("workspace-message", error.message);
+    setRepositoryError("workspace-message", error);
   }
 }
 async function startRun() {
@@ -1174,6 +1314,9 @@ languageToggle.addEventListener("click", function (event) {
   catch (error) { /* Keep the selected language for this page session. */ }
   applyLanguage();
 });
+document.getElementById("repo-path").addEventListener("input", updateWorkspaceActions);
+document.getElementById("review-history").addEventListener("change", updateWorkspaceActions);
+updateWorkspaceActions();
 applyLanguage();
 reload();
 </script></body></html>"""
@@ -1265,6 +1408,14 @@ def _path_from_input(raw: Any, base: Path, field: str) -> Path:
     return (path if path.is_absolute() else base / path).resolve()
 
 
+def _is_git_repository_root(path: Path) -> bool:
+    try:
+        validate_repository_root(path)
+    except ValueError:
+        return False
+    return True
+
+
 def _validate_run_options(payload: dict[str, Any]) -> dict[str, int | float]:
     integer_options = {
         "concurrency": (2, 1, 16),
@@ -1339,13 +1490,45 @@ def _start_audit(server: ThreadingHTTPServer, workspace: Path,
         return deepcopy(job)
 
 
-def create_server(workspace: Path | None = None, port: int = 8765,
-                  models_path: Path | None = None) -> ThreadingHTTPServer:
+def create_server(
+    workspace: Path | None = None,
+    port: int = 8765,
+    models_path: Path | None = None,
+    data_directory: Path | None = None,
+) -> ThreadingHTTPServer:
     """Create the loopback HTTP server; exposed separately to support API tests."""
 
     initial_workspace = validate_workspace(workspace) if workspace is not None else None
     starting_directory = Path.cwd().resolve()
     configured_models = models_path.resolve() if models_path is not None else None
+    data_directory = Path(data_directory or app_data_directory()).expanduser().resolve()
+    settings_error = None
+    repository_path = None
+    repository_available = False
+    repository_error = None
+    initial_review_id = None
+    try:
+        settings = load_settings(data_directory)
+        raw_repository_path = settings["repository_path"]
+        if raw_repository_path is not None:
+            repository_path = Path(raw_repository_path).resolve()
+            try:
+                repository_path = validate_repository_root(repository_path)
+                repository_available = True
+            except ValueError as exc:
+                repository_error = str(exc)
+    except (OSError, ValueError, TypeError):
+        settings_error = "Could not read a valid settings.json configuration."
+    if initial_workspace is None and repository_available and repository_path is not None:
+        reviews = list_reviews(data_directory, repository_path)
+        if reviews:
+            try:
+                initial_workspace = validate_workspace(review_directory(
+                    data_directory, reviews[0]["id"],
+                ))
+                initial_review_id = reviews[0]["id"]
+            except (OSError, ValueError):
+                initial_workspace = None
     token = secrets.token_urlsafe(24)
 
     class Handler(BaseHTTPRequestHandler):
@@ -1398,8 +1581,17 @@ def create_server(workspace: Path | None = None, port: int = 8765,
                 current_job = self.server.jobs.get(self.server.current_job_id)
                 job = deepcopy(current_job) if current_job else None
                 workspace_path = self.server.active_workspace
+                review_id = self.server.active_review_id
+                repository_path = self.server.repository_path
+                repository_available = self.server.repository_available
+                repository_error = self.server.repository_error
             return {
                 "workspace": str(workspace_path) if workspace_path else None,
+                "review_id": review_id,
+                "repository_path": str(repository_path) if repository_path else None,
+                "repository_available": repository_available,
+                "repository_error": repository_error,
+                "settings_error": self.server.settings_error,
                 "models": models,
                 "models_error": model_error,
                 "job": job,
@@ -1420,6 +1612,11 @@ def create_server(workspace: Path | None = None, port: int = 8765,
                 self._reply(204, b"", "image/x-icon")
             elif self.path == "/api/status":
                 self._json(200, self._status())
+            elif self.path == "/api/reviews":
+                reviews = list_reviews(
+                    self.server.data_directory, self.server.repository_path,
+                )
+                self._json(200, {"reviews": reviews})
             elif self.path == "/api/data":
                 try:
                     self._json(200, _data(self._active_workspace()))
@@ -1457,12 +1654,104 @@ def create_server(workspace: Path | None = None, port: int = 8765,
             allowed = {
                 "/api/folders", "/api/workspace/open", "/api/workspace/init", "/api/run",
                 "/api/rubric", "/api/adjudicate", "/api/import",
+                "/api/settings/repository", "/api/reviews", "/api/reviews/open",
             }
             if self.path not in allowed:
                 self._json(404, {"error": "Not found"})
                 return
             try:
                 payload = self._read_payload()
+                if self.path == "/api/settings/repository":
+                    if set(payload) != {"path"}:
+                        raise ValueError("Provide only the repository path")
+                    candidate = _path_from_input(
+                        payload.get("path"), self.server.starting_directory, "repository_path",
+                    )
+                    repository_path = save_repository_path(
+                        self.server.data_directory, candidate,
+                    )
+                    reviews = list_reviews(self.server.data_directory, repository_path)
+                    next_workspace = None
+                    if reviews:
+                        next_workspace = validate_workspace(review_directory(
+                            self.server.data_directory, reviews[0]["id"],
+                        ))
+                    with self.server.state_lock:
+                        self.server.repository_path = repository_path
+                        self.server.repository_available = True
+                        self.server.repository_error = None
+                        self.server.settings_error = None
+                        self.server.active_workspace = next_workspace
+                        self.server.active_review_id = reviews[0]["id"] if reviews else None
+                    self._json(200, {
+                        "repository_path": str(repository_path),
+                        "repository_available": True,
+                    })
+                    return
+                if self.path == "/api/reviews":
+                    if set(payload) - {"review_focus"}:
+                        raise ValueError("Provide only review_focus when creating a review")
+                    repository_path = self.server.repository_path
+                    if repository_path is None:
+                        raise ValueError("Configure a Git repository before creating a review")
+                    repository_path = validate_repository_root(repository_path)
+                    review_focus = payload.get("review_focus")
+                    if review_focus is None:
+                        focus = DEFAULT_FOCUS
+                    else:
+                        if (not isinstance(review_focus, dict)
+                                or set(review_focus) != {"criteria", "custom_text"}):
+                            raise ValueError(
+                                "review_focus must contain criteria and custom_text"
+                            )
+                        focus = format_review_focus(
+                            review_focus["criteria"], review_focus["custom_text"],
+                        )
+                        if len(focus) > MAX_FOCUS_LENGTH:
+                            raise ValueError(
+                                "combined review focus must be no longer than 6000 characters"
+                            )
+                    review_id = create_review_id()
+                    created_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+                    workspace_path = review_directory(self.server.data_directory, review_id)
+                    initialize_workspace(
+                        repository_path, workspace_path, focus,
+                        review_id=review_id, created_at=created_at,
+                    )
+                    workspace_path = validate_workspace(workspace_path)
+                    data = _data(workspace_path)
+                    with self.server.state_lock:
+                        self.server.repository_path = repository_path
+                        self.server.repository_available = True
+                        self.server.repository_error = None
+                        self.server.active_workspace = workspace_path
+                        self.server.active_review_id = review_id
+                    self._json(201, {
+                        **data, "review_id": review_id, "created_at": created_at,
+                    })
+                    return
+                if self.path == "/api/reviews/open":
+                    if set(payload) != {"id"}:
+                        raise ValueError("Provide only a review ID")
+                    repository_path = self.server.repository_path
+                    if repository_path is None:
+                        raise ValueError("Configure a Git repository before opening a review")
+                    review_id = payload.get("id")
+                    known_review = any(
+                        review["id"] == review_id
+                        for review in list_reviews(self.server.data_directory, repository_path)
+                    )
+                    if not known_review:
+                        raise ValueError("Review not found for the configured repository")
+                    workspace_path = validate_workspace(review_directory(
+                        self.server.data_directory, review_id,
+                    ))
+                    data = _data(workspace_path)
+                    with self.server.state_lock:
+                        self.server.active_workspace = workspace_path
+                        self.server.active_review_id = review_id
+                    self._json(200, {**data, "review_id": review_id})
+                    return
                 if self.path == "/api/folders":
                     raw_path = payload.get("path", "")
                     current = (self.server.starting_directory if raw_path == "" else
@@ -1482,10 +1771,14 @@ def create_server(workspace: Path | None = None, port: int = 8765,
                         "path": str(current),
                         "parent": str(current.parent) if current.parent != current else None,
                         "is_workspace": (current / "manifest.json").is_file(),
+                        "is_git_repository": _is_git_repository_root(current),
                         "directories": [{
                             "name": child.name,
                             "path": str(child),
                             "is_workspace": (child / "manifest.json").is_file(),
+                            "is_git_repository": (
+                                (child / ".git").exists() and _is_git_repository_root(child)
+                            ),
                         } for child in visible_children],
                         "truncated": len(children) > limit,
                     })
@@ -1496,6 +1789,7 @@ def create_server(workspace: Path | None = None, port: int = 8765,
                     data = _data(workspace_path)
                     with self.server.state_lock:
                         self.server.active_workspace = workspace_path
+                        self.server.active_review_id = None
                     self._json(200, data)
                     return
                 if self.path == "/api/workspace/init":
@@ -1523,6 +1817,7 @@ def create_server(workspace: Path | None = None, port: int = 8765,
                     workspace_path = validate_workspace(output_path)
                     with self.server.state_lock:
                         self.server.active_workspace = workspace_path
+                        self.server.active_review_id = None
                     self._json(201, _data(workspace_path))
                     return
                 if self.path == "/api/run":
@@ -1634,6 +1929,12 @@ def create_server(workspace: Path | None = None, port: int = 8765,
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     server.daemon_threads = True
     server.active_workspace = initial_workspace
+    server.active_review_id = initial_review_id
+    server.data_directory = data_directory
+    server.repository_path = repository_path
+    server.repository_available = repository_available
+    server.repository_error = repository_error
+    server.settings_error = settings_error
     server.models_path = configured_models
     server.starting_directory = starting_directory
     server.state_lock = threading.RLock()

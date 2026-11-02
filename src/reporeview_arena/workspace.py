@@ -75,10 +75,21 @@ def format_review_focus(criteria: object, custom_text: object) -> str:
     return focus
 
 
-def initialize_workspace(repo: Path, destination: Path, focus: str) -> dict[str, Any]:
+def initialize_workspace(
+    repo: Path,
+    destination: Path,
+    focus: str,
+    *,
+    review_id: str | None = None,
+    created_at: str | None = None,
+) -> dict[str, Any]:
     """Freeze a clean repository and create its manifest and reusable prompt."""
 
     manifest = snapshot_repo(repo, destination)
+    if review_id is not None:
+        manifest["review_id"] = review_id
+    if created_at is not None:
+        manifest["created_at"] = created_at
     save_json(destination / "manifest.json", manifest)
     reader = RepositoryReader(destination / "snapshot")
     prompt = build_prompt(manifest, focus, reader.describe())

@@ -37,7 +37,7 @@ def _request(base_url: str, path: str, *, token: str | None = None,
 
 @pytest.fixture
 def dashboard(tmp_path: Path):
-    server = app.create_server(port=0)
+    server = app.create_server(port=0, data_directory=tmp_path / "app-data")
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     base_url = f"http://127.0.0.1:{server.server_port}"
@@ -94,27 +94,245 @@ def test_web_cli_accepts_optional_workspace_and_models():
     assert init.focus == "Review risks"
 
 
-def test_workspace_fields_have_visible_help_and_accessible_tooltips(dashboard):
+def test_repository_configuration_has_visible_help_and_review_history(dashboard):
     _, base_url, _ = dashboard
     with urlopen(base_url + "/", timeout=2) as response:
         page = response.read().decode()
 
-    for field_id in ("workspace-path", "repo-path", "out-path"):
+    for field_id in ("repo-path",):
         assert f'aria-describedby="{field_id}-help"' in page
         assert f'id="{field_id}-help" role="tooltip"' in page
+    assert 'id="save-repository-button"' in page
+    assert 'id="review-history"' in page
+    assert "repository_path" in page
+    assert 'id="workspace-path"' not in page
+    assert 'id="out-path"' not in page
     assert 'id="focus-custom-text"' in page
     assert page.count('type="range"') == 9
-    assert page.count('role="tooltip"') == 14
+    assert page.count('role="tooltip"') == 12
     assert 'maxlength="4000"' in page
+    assert "Choose and save the root of a Git checkout" in page
+    assert "Escolha e salve a raiz de um checkout Git" in page
     for criterion_id, (_label, default_value) in REVIEW_FOCUS_CRITERIA.items():
         assert f'id="priority-{criterion_id}"' in page
         assert f'value="{default_value}"' in page
         assert f'aria-describedby="priority-{criterion_id}-help' in page
     assert "Root folder of a clean local Git checkout." in page
-    assert "new folder" in page
     assert "Review focus" in page
     assert "Critical flows and impact" in page
     assert "Fluxos críticos e impacto" in page
+
+
+def test_repository_setting_rejects_invalid_roots_and_persists_across_server_restart(
+    dashboard, tmp_path,
+):
+    server, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    nested = repo / "nested"
+    nested.mkdir()
+
+    status, initial = _request(base_url, "/api/status")
+    assert status == 200
+    assert initial["repository_path"] is None
+
+    status, _ = _request(
+        base_url, "/api/settings/repository", token=token, origin=base_url,
+        payload={"path": str(nested)},
+    )
+    assert status == 400
+    assert server.repository_path is None
+
+    status, _ = _request(
+        base_url, "/api/settings/repository", token=token, origin=base_url,
+        payload={"path": str(repo)},
+    )
+    assert status == 200
+    status, saved = _request(base_url, "/api/status")
+    assert status == 200
+    assert saved["repository_path"] == str(repo.resolve())
+
+    restarted = app.create_server(port=0, data_directory=server.data_directory)
+    restarted_thread = Thread(target=restarted.serve_forever, daemon=True)
+    restarted_thread.start()
+    restarted_url = f"http://127.0.0.1:{restarted.server_port}"
+    try:
+        status, persisted = _request(restarted_url, "/api/status")
+        assert status == 200
+        assert persisted["repository_path"] == str(repo.resolve())
+    finally:
+        restarted.shutdown()
+        restarted.server_close()
+        restarted_thread.join(timeout=2)
+
+
+def test_folder_picker_marks_only_repository_roots_as_selectable(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    nested = repo / "nested"
+    nested.mkdir()
+
+    status, root = _request(
+        base_url, "/api/folders", token=token, origin=base_url,
+        payload={"path": str(repo)},
+    )
+    assert status == 200
+    assert root["is_git_repository"] is True
+
+    status, parent = _request(
+        base_url, "/api/folders", token=token, origin=base_url,
+        payload={"path": str(tmp_path)},
+    )
+    assert status == 200
+    project = next(item for item in parent["directories"] if item["name"] == "project")
+    assert project["is_git_repository"] is True
+
+    status, subdirectory = _request(
+        base_url, "/api/folders", token=token, origin=base_url,
+        payload={"path": str(nested)},
+    )
+    assert status == 200
+    assert subdirectory["is_git_repository"] is False
+
+
+def test_managed_reviews_are_unique_listed_by_repository_and_opened_by_id(dashboard, tmp_path):
+    server, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    other_repo = _git_repo(tmp_path / "other-project")
+
+    _request(
+        base_url, "/api/settings/repository", token=token, origin=base_url,
+        payload={"path": str(repo)},
+    )
+    focus = {"criteria": {"critical_flows": 5}, "custom_text": "Check retry behavior"}
+    status, first = _request(
+        base_url, "/api/reviews", token=token, origin=base_url,
+        payload={"review_focus": focus},
+    )
+    assert status == 201
+    first_id = first["review_id"]
+    first_path = server.data_directory / "reviews" / first_id
+    assert first_path.is_dir()
+    assert (first_path / "manifest.json").is_file()
+    assert "Check retry behavior" in (first_path / "prompt.md").read_text(encoding="utf-8")
+
+    status, second = _request(
+        base_url, "/api/reviews", token=token, origin=base_url,
+        payload={"review_focus": focus},
+    )
+    assert status == 201
+    assert second["review_id"] != first_id
+
+    status, history = _request(base_url, "/api/reviews")
+    assert status == 200
+    assert {review["id"] for review in history["reviews"]} == {
+        first_id, second["review_id"],
+    }
+
+    _request(
+        base_url, "/api/settings/repository", token=token, origin=base_url,
+        payload={"path": str(other_repo)},
+    )
+    status, other_history = _request(base_url, "/api/reviews")
+    assert status == 200
+    assert other_history["reviews"] == []
+
+    _request(
+        base_url, "/api/settings/repository", token=token, origin=base_url,
+        payload={"path": str(repo)},
+    )
+    status, opened = _request(
+        base_url, "/api/reviews/open", token=token, origin=base_url,
+        payload={"id": first_id},
+    )
+    assert status == 200
+    assert opened["manifest"]["repo_name"] == "project"
+    status, active = _request(base_url, "/api/status")
+    assert active["workspace"] == str(first_path.resolve())
+
+    status, error = _request(
+        base_url, "/api/reviews/open", token=token, origin=base_url,
+        payload={"id": "../settings.json"},
+    )
+    assert status == 400
+    assert error["error"]
+
+
+def test_startup_selects_the_latest_managed_review_for_the_saved_repository(
+    dashboard, tmp_path,
+):
+    server, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    _request(
+        base_url, "/api/settings/repository", token=token, origin=base_url,
+        payload={"path": str(repo)},
+    )
+    created = []
+    for _ in range(2):
+        status, review = _request(
+            base_url, "/api/reviews", token=token, origin=base_url,
+            payload={"review_focus": {"criteria": {}, "custom_text": ""}},
+        )
+        assert status == 201
+        created.append(review)
+
+    latest = max(created, key=lambda item: item["created_at"])
+    restarted = app.create_server(port=0, data_directory=server.data_directory)
+    try:
+        assert restarted.active_review_id == latest["review_id"]
+        assert restarted.active_workspace == (
+            server.data_directory / "reviews" / latest["review_id"]
+        ).resolve()
+    finally:
+        restarted.server_close()
+
+
+def test_saved_repository_that_was_moved_is_reported_unavailable(tmp_path):
+    data_directory = tmp_path / "app-data"
+    moved_repository = tmp_path / "repository-that-is-not-here"
+    save_json(data_directory / "settings.json", {
+        "repository_path": str(moved_repository.resolve()),
+    })
+    server = app.create_server(port=0, data_directory=data_directory)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        status, configuration = _request(
+            f"http://127.0.0.1:{server.server_port}", "/api/status",
+        )
+        assert status == 200
+        assert configuration["repository_path"] == str(moved_repository.resolve())
+        assert configuration["repository_available"] is False
+        assert configuration["repository_error"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_managed_review_creation_rejects_dirty_repository(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    _request(
+        base_url, "/api/settings/repository", token=token, origin=base_url,
+        payload={"path": str(repo)},
+    )
+    status, error = _request(
+        base_url, "/api/reviews", token=token, origin=base_url,
+        payload={"out": str(tmp_path / "chosen-by-browser")},
+    )
+    assert status == 400
+    assert "review_focus" in error["error"]
+    assert not (tmp_path / "chosen-by-browser").exists()
+
+    (repo / "main.py").write_text("changed\n", encoding="utf-8")
+
+    status, error = _request(
+        base_url, "/api/reviews", token=token, origin=base_url,
+        payload={},
+    )
+
+    assert status == 400
+    assert "dirty" in error["error"].lower()
 
 
 def test_review_focus_composition_omits_zero_values_and_appends_custom_criteria():
@@ -177,6 +395,8 @@ def test_dashboard_starts_without_workspace_and_can_open_one(dashboard, tmp_path
     status, configuration = _request(base_url, "/api/status")
     assert status == 200
     assert configuration["models"] == []
+    assert configuration["repository_path"] is None
+    assert configuration["repository_available"] is False
     assert "--models" in configuration["models_error"]
     status, data = _request(base_url, "/api/data")
     assert status == 409

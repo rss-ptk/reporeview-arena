@@ -121,7 +121,17 @@ reporeview web --workspace ./arenas/project-2026 --models ./models.json
 # Open http://127.0.0.1:8765
 ```
 
-The dashboard can also be started without an arena using `reporeview web --models ./models.json`; open an existing workspace or create one from a clean local Git checkout in the browser. New arenas provide nine review priorities on a 0-5 scale; zero omits a criterion, and custom criteria can be entered one per line. Relative paths entered in the panel are resolved from the directory where the CLI started the server. The panel can start provider audits, show per-model progress and partial failures, and its **Contestants to audit** checkbox group lists the enabled models from `models.json`; tick the contestants for a run (Select all and Clear selection are provided). Contestants that already have a report are locked so results are never overwritten, and models added to `models.json` later start unticked. The panel can also display/copy/download the generated prompt, import reports, adjudicate findings, set rubric scores and download the score JSON. Each audit requires a fresh confirmation before source fragments are sent to providers. Provider credentials remain in the environment of the local CLI process. `--models` is optional; without it, the manual review and import features remain available while provider audits are disabled. Scores persist under `judgments/`.
+The dashboard can also be started without `--workspace` using `reporeview web --models ./models.json`. In the Control Page, choose and save the root of one local Git checkout, then create a review or open one from that repository's history. The browser does not ask where review files should go: each review gets a unique folder under the app's fixed per-user data directory, so switching repositories keeps their histories separate. The only configurable path in the Control Page is the checkout root.
+
+The fixed data directory follows the operating system's standard per-user location:
+
+| System | Data directory |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\RepoReviewArena` |
+| macOS | `~/Library/Application Support/RepoReviewArena` |
+| Linux | `${XDG_DATA_HOME:-~/.local/share}/reporeview-arena` |
+
+It contains `settings.json` with only the absolute `repository_path` and a `reviews/<id>/` folder for each Control Page review. The review folder contains its manifest, snapshot, prompt, reports and judgments. Existing command workflows that use `--workspace` and `--out` continue to work with their chosen folders; they are not moved into the managed history automatically. New reviews provide nine review priorities on a 0-5 scale; zero omits a criterion, and custom criteria can be entered one per line. The panel can start provider audits, show per-model progress and partial failures, and its **Contestants to audit** checkbox group lists the enabled models from `models.json`; tick the contestants for a run (Select all and Clear selection are provided). Contestants that already have a report are locked so results are never overwritten, and models added to `models.json` later start unticked. The panel can also display/copy/download the generated prompt, import reports, adjudicate findings, set rubric scores and download the score JSON. Each audit requires a fresh confirmation before source fragments are sent to providers. Provider credentials remain in the environment of the local CLI process. `--models` is optional; without it, the manual review and import features remain available while provider audits are disabled. Scores persist under `judgments/`.
 
 CLI equivalents:
 
