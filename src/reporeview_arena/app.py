@@ -51,7 +51,7 @@ section{margin-top:32px}.meta{font-size:12px;color:var(--muted)}.meta b{color:va
 .panel,.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}.card h3{font-size:22px}.total{font-size:37px;font-weight:780;letter-spacing:-.06em}.gold{color:var(--gold)}.muted{color:var(--muted)}
 .grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px, 1.15fr);gap:20px}.row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:space-between}.pill{padding:3px 8px;border-radius:6px;font-size:11px;background:#25364e;color:#bad5ea}.p0{color:#ff697c}.p1{color:#ffb376}.p2{color:#e4d58b}.p3{color:#9cc6dd}
 button,select,input,textarea{border:1px solid #48627d;background:#16263c;color:var(--ink);border-radius:7px;font:inherit;padding:7px 10px}button{cursor:pointer}button:hover{border-color:var(--accent)}button:disabled{opacity:.5;cursor:not-allowed}button.primary{background:#155b67;border-color:#237e8e}input[type=number]{width:78px}label{font-size:12px;color:var(--muted)}.finding{padding:15px 0;border-top:1px solid var(--line)}.finding:first-child{border-top:0}p{margin:6px 0 12px}.code{font-family:ui-monospace,monospace;color:#8bd6e8;font-size:12px;overflow-wrap:anywhere}.detail{font-size:13px;color:#c5d1df;white-space:pre-wrap}.formrow{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin-top:12px}.formrow>div{display:flex;flex-direction:column;gap:4px}.field{display:flex;flex-direction:column;gap:5px;min-width:220px;flex:1}.pathinput{width:100%}.field textarea{min-height:74px;resize:vertical}.model-choice{display:flex;align-items:center;gap:8px;margin:7px 0}.model-choice input{margin:0}.job-outcomes{padding-left:20px;color:var(--muted)}.promptbox{max-height:420px;overflow:auto;background:#0a1220;border:1px solid var(--line);border-radius:8px;padding:14px}
-table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1px solid var(--line);text-align:left}th{font-size:11px;color:var(--muted);font-weight:600}td.num{text-align:right;font-variant-numeric:tabular-nums}tr:first-child td{font-weight:700}pre{white-space:pre-wrap;overflow-wrap:anywhere}#message{margin-top:12px;color:var(--accent)}
+table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1px solid var(--line);text-align:left}th{font-size:11px;color:var(--muted);font-weight:600}td.num{text-align:right;font-variant-numeric:tabular-nums}tr:first-child td{font-weight:700}pre{white-space:pre-wrap;overflow-wrap:anywhere}#message{margin-top:12px;color:var(--accent)}.save-feedback{margin:8px 0 0;font-size:13px;color:var(--muted)}.save-feedback:empty{display:none}.save-feedback[data-state="success"]{color:var(--accent)}.save-feedback[data-state="error"]{color:var(--red)}
 @media(max-width:800px){.grid{grid-template-columns:1fr}main{padding:22px 13px}.panel{padding:14px}}
 .field-heading{display:flex;align-items:center;gap:7px}.help-wrap{position:relative;display:inline-flex;align-items:center}.help-tip{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border-radius:50%;font-size:11px;font-weight:700;line-height:1}.tooltip-content{display:none;position:absolute;left:0;top:calc(100% + 8px);z-index:30;width:min(280px,calc(100vw - 48px));padding:9px 11px;border:1px solid #48627d;border-radius:8px;background:#09111f;color:var(--ink);font-size:12px;font-weight:400;line-height:1.45;text-align:left;white-space:normal;box-shadow:0 8px 24px #0008}.help-wrap:hover .tooltip-content,.help-wrap:focus-within .tooltip-content{display:block}.help-wrap.tip-right .tooltip-content{left:auto;right:0}.field-description{font-size:12px;color:var(--muted);line-height:1.4}
 .workspace-accordions{display:grid;gap:10px}.workspace-accordion{border:1px solid var(--line);border-radius:10px;background:#101a2b}.workspace-accordion>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;font-weight:700;cursor:pointer;list-style:none}.workspace-accordion>summary::-webkit-details-marker,.workspace-accordion>summary::marker{display:none;content:""}.workspace-accordion>summary::after{content:"+";color:var(--accent);font-size:20px;line-height:1}.workspace-accordion[open]>summary::after{content:"−"}.workspace-accordion>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:7px}.workspace-accordion-body{border-top:1px solid var(--line);padding:14px}.workspace-accordion-body>.formrow:first-child{margin-top:0}.workspace-accordion .focus-config{grid-column:auto;margin:16px 0 12px}.workspace-accordion .focus-submit{grid-column:auto;margin-top:12px}
@@ -62,16 +62,36 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 @media(min-width:801px) and (max-width:1100px){.help-wrap.tip-right .tooltip-content{left:0;right:auto}}
 @media(max-width:800px){.tooltip-content{width:min(220px,calc(100vw - 48px))}.help-wrap.tip-right .tooltip-content{left:0;right:auto}}
 .contestants{min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px;margin:14px 0 10px}.contestants legend{padding:0 6px;font-weight:700}.contestants:disabled{opacity:.65}.contestants .model-choice{font-size:13px;color:var(--ink)}.model-choice.is-locked{opacity:.7}.contestant-tools{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:10px 0 6px}.contestant-tools button{padding:3px 10px;font-size:12px}
+.wizard-shell{margin-top:28px}.wizard-heading{display:grid;grid-template-columns:minmax(0,1fr) minmax(150px,260px);align-items:end;gap:20px}.wizard-progress{height:8px;overflow:hidden;border-radius:99px;background:#25364e}.wizard-progress span{display:block;width:0;height:100%;border-radius:inherit;background:var(--accent);transition:width .2s ease}.wizard-nav{margin-top:18px}.wizard-nav ol{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:0;padding:0;list-style:none}.wizard-step-button{display:grid;grid-template-columns:28px minmax(0,1fr);align-items:center;gap:2px 8px;width:100%;min-height:74px;padding:9px 10px;text-align:left;background:#101a2b;border-color:var(--line)}.wizard-step-button:focus-visible,.wizard-actions button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.wizard-step-number{grid-row:1 / span 2;display:grid;place-items:center;width:26px;height:26px;border:1px solid #48627d;border-radius:50%;font-size:12px;color:var(--muted)}.wizard-step-button[aria-current="step"]{border-color:#237e8e;background:#13283a}.wizard-step-button[aria-current="step"] .wizard-step-number,.wizard-step-button.is-complete .wizard-step-number{border-color:var(--accent);color:var(--accent)}.wizard-step-button[aria-disabled="true"]{opacity:.68;cursor:not-allowed}.wizard-step-label{font-size:12px;font-weight:700;overflow-wrap:anywhere}.wizard-step-status,.wizard-step-hint{grid-column:2;font-size:10px;line-height:1.3;color:var(--muted);overflow-wrap:anywhere}.wizard-step-status{color:var(--accent)}.wizard-step-hint:empty{display:none}.wizard-panel{margin-top:18px}.wizard-panel[hidden]{display:none}.wizard-actions{display:flex;justify-content:space-between;gap:10px;margin-top:20px;padding-top:14px;border-top:1px solid var(--line)}.wizard-actions button{min-width:104px}.wizard-progress-summary{font-size:12px;color:var(--muted)}#wizard-message{margin-top:10px;color:var(--muted)}#wizard-message:empty{display:none}#partial-scores .card{padding:14px}.partial-score-total{font-size:28px;font-weight:760;letter-spacing:-.04em;color:var(--accent)}
+@media(max-width:800px){.wizard-heading{grid-template-columns:1fr}.wizard-progress{max-width:none}.wizard-nav ol{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:460px){.wizard-nav ol{grid-template-columns:1fr}.wizard-step-button{min-height:58px}.wizard-actions button{min-width:0;flex:1}}
+@media(prefers-reduced-motion:reduce){.wizard-progress span{transition:none}}
 </style></head><body><main>
-<header><div><div class="eyebrow" data-i18n="independentAudits">Independent LLM code audits</div><h1>RepoReview <span class="gold">Arena</span></h1><div id="project" class="meta" data-i18n="loadingCompetition">Loading competition…</div></div><div class="header-actions"><span id="language-label" class="language-label" data-i18n="languageLabel">Language</span><div id="language-toggle" class="language-toggle" role="group" aria-labelledby="language-label"><button type="button" class="language-option" data-language="en" aria-pressed="true">EN</button><button type="button" class="language-option" data-language="pt-BR" aria-pressed="false">PT-BR</button></div><button data-i18n="refresh" onclick="reload()">Refresh</button><button data-i18n="exportScorecard" onclick="exportJson()">Export scorecard</button></div></header>
-<section class="panel" id="workspace-panel">
-<div class="row"><div><div class="eyebrow" data-i18n="localWorkspace">Local workspace</div><h2 data-i18n="repositorySettings">Repository</h2></div><span class="meta"><span data-i18n="activeReview">Active review</span>: <span id="workspace-active" data-i18n="noArenaSelected">No review loaded</span></span></div>
+<header><div><div class="eyebrow" data-i18n="independentAudits">Independent LLM code audits</div><h1>RepoReview <span class="gold">Arena</span></h1><div id="project" class="meta" data-i18n="loadingCompetition">Loading competition…</div></div><div class="header-actions"><span id="language-label" class="language-label" data-i18n="languageLabel">Language</span><div id="language-toggle" class="language-toggle" role="group" aria-labelledby="language-label"><button type="button" class="language-option" data-language="en" aria-pressed="true">EN</button><button type="button" class="language-option" data-language="pt-BR" aria-pressed="false">PT-BR</button></div><button data-i18n="refresh" onclick="reload()">Refresh</button></div></header>
+<section class="wizard-shell" aria-labelledby="wizard-title">
+<div class="wizard-heading"><div><div class="eyebrow" data-i18n="localWorkspace">Review setup</div><h2 id="wizard-title" data-i18n="wizardTitle">Review workflow</h2></div><div id="wizard-progress" class="wizard-progress" role="progressbar" aria-label="Workflow progress" data-i18n-aria-label="wizardProgress" aria-valuemin="1" aria-valuemax="5" aria-valuenow="1" aria-valuetext="Step 1 of 5"><span id="wizard-progress-fill"></span></div></div>
+<nav id="wizard-nav" class="wizard-nav" aria-label="Workflow progress" data-i18n-aria-label="wizardProgress"><ol>
+<li><button type="button" class="wizard-step-button" data-wizard-step="0" aria-controls="wizard-panel-0" aria-current="step" aria-describedby="wizard-hint-0"><span class="wizard-step-number">1</span><span class="wizard-step-label" data-i18n="wizardStepRepository">Repository</span><span id="wizard-status-0" class="wizard-step-status" aria-live="polite"></span><small id="wizard-hint-0" class="wizard-step-hint"></small></button></li>
+<li><button type="button" class="wizard-step-button" data-wizard-step="1" aria-controls="wizard-panel-1" aria-disabled="true" aria-describedby="wizard-hint-1"><span class="wizard-step-number">2</span><span class="wizard-step-label" data-i18n="wizardStepReview">Set up review</span><span id="wizard-status-1" class="wizard-step-status"></span><small id="wizard-hint-1" class="wizard-step-hint"></small></button></li>
+<li><button type="button" class="wizard-step-button" data-wizard-step="2" aria-controls="wizard-panel-2" aria-disabled="true" aria-describedby="wizard-hint-2"><span class="wizard-step-number">3</span><span class="wizard-step-label" data-i18n="wizardStepReports">Collect reports</span><span id="wizard-status-2" class="wizard-step-status"></span><small id="wizard-hint-2" class="wizard-step-hint"></small></button></li>
+<li><button type="button" class="wizard-step-button" data-wizard-step="3" aria-controls="wizard-panel-3" aria-disabled="true" aria-describedby="wizard-hint-3"><span class="wizard-step-number">4</span><span class="wizard-step-label" data-i18n="wizardStepAdjudication">Validate findings</span><span id="wizard-status-3" class="wizard-step-status"></span><small id="wizard-hint-3" class="wizard-step-hint"></small></button></li>
+<li><button type="button" class="wizard-step-button" data-wizard-step="4" aria-controls="wizard-panel-4" aria-disabled="true" aria-describedby="wizard-hint-4"><span class="wizard-step-number">5</span><span class="wizard-step-label" data-i18n="wizardStepResults">Scorecard</span><span id="wizard-status-4" class="wizard-step-status"></span><small id="wizard-hint-4" class="wizard-step-hint"></small></button></li>
+</ol></nav>
+<div id="wizard-message" role="status" data-i18n="wizardLoading">Loading workflow...</div>
+<section class="panel wizard-panel" id="workspace-panel" data-wizard-panel="0" aria-labelledby="wizard-heading-0" hidden>
+<div class="row"><div><div class="eyebrow" data-i18n="wizardStepRepository">Repository</div><h2 id="wizard-heading-0" tabindex="-1" data-i18n="repositorySettings">Git repository</h2></div></div>
 <p class="muted" data-i18n="repositoryIntro">Choose the Git checkout to review. Review folders are managed automatically.</p>
 <div class="formrow">
 <div class="field"><div class="field-heading"><label for="repo-path" data-i18n="gitRepositoryRoot">Git repository root</label><span class="help-wrap"><button class="help-tip" type="button" data-i18n-aria-label="helpGitRepositoryRoot" aria-describedby="repo-path-help">?</button><span class="tooltip-content" id="repo-path-help" role="tooltip" data-i18n="gitRepositoryRootHelp">Path to the root of the local Git checkout you want to review.</span></span><button class="field-browse" type="button" data-i18n="browseFolder" data-i18n-title="browseFolderTitle" title="Browse for a Git repository" onclick="openFolderPicker()">Browse</button></div><input id="repo-path" class="pathinput" aria-describedby="repo-path-help" data-i18n-placeholder="gitRepositoryPlaceholder" placeholder="Path to local Git repository"><small class="field-description" data-i18n="gitRepositoryRootDescription">Root folder of a local Git checkout.</small></div>
 <button id="save-repository-button" type="button" data-i18n="saveRepository" onclick="saveRepository()" disabled>Save repository</button>
 </div>
 <div id="repository-message" role="status"></div>
+<div class="wizard-actions"><span></span><button type="button" class="primary wizard-next" data-wizard-next="0" data-i18n="wizardContinue">Continue</button></div>
+</section>
+<div id="arena-content">
+<section class="panel wizard-panel" id="wizard-panel-1" data-wizard-panel="1" aria-labelledby="wizard-heading-1" hidden>
+<div class="row"><div><div class="eyebrow" data-i18n="wizardStepReview">Set up review</div><h2 id="wizard-heading-1" tabindex="-1" data-i18n="openOrCreateArena">Continue a review or start a new one</h2></div><span class="meta"><span data-i18n="activeReview">Active review</span>: <span id="workspace-active" data-i18n="noArenaSelected">No review loaded</span></span></div>
+<p class="muted" data-i18n="wizardReviewIntro">Choose a saved review or create one and set its review priorities.</p>
 <div class="formrow">
 <div class="field"><label for="review-history" data-i18n="reviewHistory">Previous reviews for this repository</label><select id="review-history" data-i18n-aria-label="reviewHistory" aria-label="Previous reviews"><option value="" data-i18n="noPreviousReviews">No saved reviews</option></select></div>
 <button id="open-review-button" type="button" data-i18n="openReview" onclick="openReview()" disabled>Open review</button>
@@ -83,16 +103,44 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 <div id="focus-criteria" class="focus-criteria-grid">__FOCUS_CRITERIA__</div>
 <div class="field custom-focus-field"><div class="field-heading"><label for="focus-custom-text" data-i18n="customCriteria">Custom criteria</label><span class="help-wrap tip-right"><button class="help-tip" type="button" data-i18n-aria-label="helpCustomCriteria" aria-describedby="focus-custom-help">?</button><span class="tooltip-content" id="focus-custom-help" role="tooltip" data-i18n="customCriteriaHelp">Add additional review criteria, one per line. This text is included as written in the generated prompt.</span></span></div><textarea id="focus-custom-text" maxlength="__MAX_CUSTOM_FOCUS_LENGTH__" data-i18n-placeholder="customCriteriaPlaceholder" placeholder="One custom criterion per line" aria-describedby="focus-custom-help review-focus-guidance"></textarea><small class="field-description" data-i18n="customCriteriaDescription">Optional, up to 4,000 characters. Use one criterion per line.</small></div>
 </fieldset>
-<div id="workspace-message" role="status"></div></section>
-<div id="arena-content" hidden>
-<section><div class="eyebrow" data-i18n="leaderboard">Leaderboard</div><h2 data-i18n="verifiedResultsOnly">Verified results only</h2><div id="summary" class="cards"></div></section>
-<section class="panel"><div class="row"><h2 data-i18n="scoreboard">Scoreboard</h2><button data-i18n="downloadScoreJson" onclick="downloadScore()">Download score JSON</button></div><div style="overflow:auto"><table id="board"></table></div><p class="muted" data-i18n="scoreboardExplanation">Unreviewed findings score zero. Confirmed issues score by reviewed severity. Penalties apply for false positives.</p></section>
-<section><div class="eyebrow" data-i18n="valueProposals">Value proposals</div><h2 data-i18n="goldenFeatureContenders">Golden feature contenders</h2><div id="goldpodium" class="cards"></div></section>
-<section class="grid"><div class="panel"><h2 data-i18n="runAudit">Run an audit</h2><p class="muted" data-i18n="auditDisclosure">Selected providers receive source fragments from the frozen snapshot. Review the snapshot before authorizing a run.</p><fieldset id="contestants-fieldset" class="contestants" aria-describedby="contestants-description contestants-count models-message"><legend data-i18n="contestantsToAudit">Contestants to audit</legend><p id="contestants-description" class="field-description" data-i18n="contestantsDescription">Only enabled models from models.json are listed. Contestants that already have a report are locked, so existing results are never overwritten.</p><div class="contestant-tools"><button type="button" id="contestants-select-all" data-i18n="selectAllContestants" onclick="setAllContestants(true)" disabled>Select all</button><button type="button" id="contestants-clear" data-i18n="clearContestants" onclick="setAllContestants(false)" disabled>Clear selection</button><span id="contestants-count" class="meta" role="status"></span></div><div id="run-models"></div><div id="models-message" class="meta"></div></fieldset><div class="formrow"><div><label for="concurrency" data-i18n="concurrency">Concurrency</label><input type="number" id="concurrency" min="1" max="16" value="2"></div><div><label for="max-steps" data-i18n="maxSteps">Max steps</label><input type="number" id="max-steps" min="1" value="35"></div><div><label for="retries" data-i18n="retries">Retries</label><input type="number" id="retries" min="0" max="5" value="2"></div><div><label for="retry-delay" data-i18n="retryDelay">Retry delay (s)</label><input type="number" id="retry-delay" min="0" max="60" step="0.5" value="5"></div></div><label class="model-choice"><input id="confirm-send-code" type="checkbox"><span data-i18n="authorizeCodeSending">I authorize sending approved source fragments to the selected providers for this run.</span></label><button id="run-button" class="primary" data-i18n="startAudit" onclick="startRun()">Start audit</button><div id="run-message" role="status"></div><div id="job-details"></div></div>
-<div class="panel"><div class="row"><h2 data-i18n="generatedReviewPrompt">Generated review prompt</h2><button data-i18n="showPrompt" onclick="loadPrompt()">Show prompt</button></div><p class="muted" data-i18n="promptIntro">Copy this prompt into an IDE or another coding agent.</p><div id="prompt-actions" hidden><button data-i18n="copy" onclick="copyPrompt()">Copy</button> <button data-i18n="downloadPrompt" onclick="downloadPrompt()">Download prompt</button></div><pre id="prompt-text" class="promptbox" hidden></pre><div id="prompt-message" role="status"></div></div></section>
-<section class="grid"><div><div class="panel"><h2 data-i18n="reviewContestant">Review a contestant</h2><div class="formrow"><div><label for="model" data-i18n="model">Model</label><select id="model" onchange="showReport()"></select></div></div><p id="abstract" class="muted"></p><h3 data-i18n="goldenFeature">Golden feature</h3><div id="gold"></div><h3 style="margin-top:22px" data-i18n="rubricScores">Rubric scores</h3><div class="formrow"><div><label for="improvements" data-i18n="improvements15">Improvements /15</label><input type="number" id="improvements" min="0" max="15"></div><div><label for="goldscore" data-i18n="gold20">Gold /20</label><input type="number" id="goldscore" min="0" max="20"></div><div><label for="rigor" data-i18n="rigor5">Rigor /5</label><input type="number" id="rigor" min="0" max="5"></div><button class="primary" data-i18n="saveScores" onclick="saveRubric()">Save scores</button></div></div>
-<div class="panel" style="margin-top:20px"><h2 data-i18n="importManualReport">Import manual report</h2><p class="muted" data-i18n="importExplanation">JSON report produced in any IDE or imported from another system. The model ID may contain only letters, digits, underscores and hyphens.</p><div class="formrow"><input id="importmodel" data-i18n-placeholder="modelIdPlaceholder" data-i18n-aria-label="modelIdLabel" placeholder="model-id" aria-label="Model ID"><input type="file" id="importfile" accept=".json,.md,.txt" data-i18n-aria-label="reportFile"><button data-i18n="import" onclick="importReport()">Import</button></div><div id="message"></div></div></div>
-<div class="panel"><div class="row"><h2 data-i18n="findingsAdjudication">Findings &amp; adjudication</h2><span id="count" class="pill"></span></div><div id="findings"></div></div></section>
+<div id="workspace-message" role="status"></div>
+<div class="wizard-actions"><button type="button" class="wizard-back" data-wizard-back="1" data-i18n="wizardBack">Back</button><button type="button" class="primary wizard-next" data-wizard-next="1" data-i18n="wizardContinue">Continue</button></div>
+</section>
+<section class="wizard-panel" id="wizard-panel-2" data-wizard-panel="2" aria-labelledby="wizard-heading-2" hidden>
+<div><div class="eyebrow" data-i18n="wizardStepReports">Collect reports</div><h2 id="wizard-heading-2" tabindex="-1" data-i18n="runAudit">Run an audit</h2></div>
+<p class="muted" data-i18n="wizardReportsIntro">Run selected providers or import a report produced elsewhere. Provider audits require fresh consent.</p>
+<section class="grid">
+<div class="panel"><h3 data-i18n="runAudit">Run an audit</h3><p class="muted" data-i18n="auditDisclosure">Selected providers receive source fragments from the frozen snapshot. Review the snapshot before authorizing a run.</p><fieldset id="contestants-fieldset" class="contestants" aria-describedby="contestants-description contestants-count models-message"><legend data-i18n="contestantsToAudit">Contestants to audit</legend><p id="contestants-description" class="field-description" data-i18n="contestantsDescription">Only enabled models from models.json are listed. Contestants that already have a report are locked, so existing results are never overwritten.</p><div class="contestant-tools"><button type="button" id="contestants-select-all" data-i18n="selectAllContestants" onclick="setAllContestants(true)" disabled>Select all</button><button type="button" id="contestants-clear" data-i18n="clearContestants" onclick="setAllContestants(false)" disabled>Clear selection</button><span id="contestants-count" class="meta" role="status"></span></div><div id="run-models"></div><div id="models-message" class="meta"></div></fieldset><div class="formrow"><div><label for="concurrency" data-i18n="concurrency">Concurrency</label><input type="number" id="concurrency" min="1" max="16" value="2"></div><div><label for="max-steps" data-i18n="maxSteps">Max steps</label><input type="number" id="max-steps" min="1" value="35"></div><div><label for="retries" data-i18n="retries">Retries</label><input type="number" id="retries" min="0" max="5" value="2"></div><div><label for="retry-delay" data-i18n="retryDelay">Retry delay (s)</label><input type="number" id="retry-delay" min="0" max="60" step="0.5" value="5"></div></div><label class="model-choice"><input id="confirm-send-code" type="checkbox"><span data-i18n="authorizeCodeSending">I authorize sending approved source fragments to the selected providers for this run.</span></label><button id="run-button" class="primary" data-i18n="startAudit" onclick="startRun()">Start audit</button><div id="run-message" role="status"></div><div id="job-details"></div></div>
+<div class="panel"><div class="row"><h3 data-i18n="generatedReviewPrompt">Generated review prompt</h3><button data-i18n="showPrompt" onclick="loadPrompt()">Show prompt</button></div><p class="muted" data-i18n="promptIntro">Copy this prompt into an IDE or another coding agent.</p><div id="prompt-actions" hidden><button data-i18n="copy" onclick="copyPrompt()">Copy</button> <button data-i18n="downloadPrompt" onclick="downloadPrompt()">Download prompt</button></div><pre id="prompt-text" class="promptbox" hidden></pre><div id="prompt-message" role="status"></div></div>
+</section>
+<section class="panel"><h3 data-i18n="importManualReport">Import manual report</h3><p class="muted" data-i18n="importExplanation">JSON report produced in any IDE or imported from another system. The model ID may contain only letters, digits, underscores and hyphens.</p><div class="formrow"><input id="importmodel" data-i18n-placeholder="modelIdPlaceholder" data-i18n-aria-label="modelIdLabel" placeholder="model-id"><input type="file" id="importfile" accept=".json,.md,.txt" data-i18n-aria-label="reportFile"><button data-i18n="import" onclick="importReport()">Import</button></div><div id="message" role="status"></div></section>
+<div class="wizard-actions"><button type="button" class="wizard-back" data-wizard-back="2" data-i18n="wizardBack">Back</button><button type="button" class="primary wizard-next" data-wizard-next="2" data-i18n="wizardContinue">Continue</button></div>
+</section>
+<section class="wizard-panel" id="wizard-panel-3" data-wizard-panel="3" aria-labelledby="wizard-heading-3" hidden>
+<div><div class="eyebrow" data-i18n="wizardStepAdjudication">Validate findings</div><h2 id="wizard-heading-3" tabindex="-1" data-i18n="findingsAdjudication">Findings &amp; adjudication</h2></div>
+<p class="muted" data-i18n="wizardAdjudicationIntro">Assign a verdict to every finding, then save the rubric for each report.</p>
+<section class="grid">
+<div class="panel">
+<h3 data-i18n="reviewContestant">Review a contestant</h3>
+<div class="formrow"><div><label for="model" data-i18n="model">Model</label><select id="model" onchange="showReport()"></select></div></div>
+<p id="abstract" class="muted"></p><h3 data-i18n="goldenFeature">Golden feature</h3><div id="gold"></div>
+<h3 style="margin-top:22px" data-i18n="rubricScores">Rubric scores</h3>
+<div class="formrow"><div><label for="improvements" data-i18n="improvements15">Improvements /15</label><input type="number" id="improvements" min="0" max="15"></div><div><label for="goldscore" data-i18n="gold20">Gold /20</label><input type="number" id="goldscore" min="0" max="20"></div><div><label for="rigor" data-i18n="rigor5">Rigor /5</label><input type="number" id="rigor" min="0" max="5"></div><button id="save-rubric-button" class="primary" data-i18n="saveScores" onclick="saveRubric()">Save scores</button></div>
+<p id="rubric-save-message" class="save-feedback" role="status" aria-live="polite" aria-atomic="true"></p>
+</div>
+<div class="panel"><div class="row"><h3 data-i18n="findingsAdjudication">Findings &amp; adjudication</h3><span id="count" class="pill"></span></div><p id="finding-save-message" class="save-feedback" role="status" aria-live="polite" aria-atomic="true"></p><div id="findings"></div></div>
+</section>
+<section class="panel"><div class="row"><h3 data-i18n="partialScoreboard">Live score preview</h3><span id="partial-score-status" class="meta"></span></div><div id="partial-scores" class="cards" aria-live="polite"></div></section>
+<div class="wizard-actions"><button type="button" class="wizard-back" data-wizard-back="3" data-i18n="wizardBack">Back</button><button type="button" class="primary wizard-next" data-wizard-next="3" data-i18n="wizardContinue">Continue</button></div>
+</section>
+<section class="wizard-panel" id="wizard-panel-4" data-wizard-panel="4" aria-labelledby="wizard-heading-4" hidden>
+<div><div class="eyebrow" data-i18n="wizardStepResults">Scorecard</div><h2 id="wizard-heading-4" tabindex="-1" data-i18n="verifiedResultsOnly">Verified results only</h2></div>
+<p class="muted" data-i18n="wizardResultsIntro">All current reports have been reviewed. View and export the scorecard.</p>
+<section><div class="eyebrow" data-i18n="leaderboard">Leaderboard</div><div id="summary" class="cards"></div></section>
+<section class="panel"><div class="row"><h3 data-i18n="scoreboard">Scoreboard</h3><div class="header-actions"><button data-i18n="downloadScoreJson" onclick="downloadScore()">Download score JSON</button><button data-i18n="exportScorecard" onclick="exportJson()">Export scorecard</button></div></div><div style="overflow:auto"><table id="board"></table></div><p class="muted" data-i18n="scoreboardExplanation">Unreviewed findings score zero. Confirmed issues score by reviewed severity. Penalties apply for false positives.</p></section>
+<section><div class="eyebrow" data-i18n="valueProposals">Value proposals</div><h3 data-i18n="goldenFeatureContenders">Golden feature contenders</h3><div id="goldpodium" class="cards"></div></section>
+<div class="wizard-actions"><button type="button" class="wizard-back" data-wizard-back="4" data-i18n="wizardBack">Back</button></div>
+</section>
 </div>
 <dialog id="folder-dialog" class="folder-dialog" aria-labelledby="folder-dialog-title">
 <div class="row"><h2 id="folder-dialog-title" data-i18n="folderDialogTitle">Choose an arena folder</h2><button type="button" data-i18n="close" onclick="closeFolderPicker()">Close</button></div>
@@ -108,6 +156,10 @@ let dashboardStatus = {};
 let pollTimer = null;
 let contestantSelection = null;
 let initialRepositoryLoaded = false;
+let wizardCurrentStep = null;
+let wizardDataReady = false;
+let wizardDataError = false;
+let wizardProgressState = null;
 let folderPickerTarget = null;
 let folderPickerData = null;
 let folderRequestId = 0;
@@ -116,6 +168,33 @@ const token = __TOKEN__;
 const translations = {
   en: {
     languageLabel: "Language",
+    wizardTitle: "Review workflow",
+    wizardLoading: "Loading workflow...",
+    wizardProgress: "Workflow progress",
+    wizardStepRepository: "Repository",
+    wizardStepReview: "Set up review",
+    wizardStepReports: "Collect reports",
+    wizardStepAdjudication: "Validate findings",
+    wizardStepResults: "Scorecard",
+    wizardBack: "Back",
+    wizardContinue: "Continue",
+    wizardDone: "Complete",
+    wizardCurrent: "Current",
+    wizardReady: "Ready",
+    wizardLocked: "Locked",
+    wizardProgressLabel: "Step {current} of 5",
+    wizardRepoGate: "Save a valid Git repository to unlock this step.",
+    wizardReviewGate: "Create or open a valid review to unlock this step.",
+    wizardReportsGate: "Add a valid report and finish any audit for this review to unlock this step.",
+    wizardAuditRunning: "This review's audit is still running.",
+    wizardFindingsGate: "Resolve every finding to unlock the scorecard.",
+    wizardRubricGate: "Save rubric scores for every report to unlock the scorecard.",
+    wizardRefreshFailed: "Workflow state could not be refreshed. Refresh the page to continue.",
+    wizardReviewIntro: "Choose a saved review or create one and set its review priorities.",
+    wizardReportsIntro: "Run selected providers or import a report produced elsewhere. Provider audits require fresh consent.",
+    wizardAdjudicationIntro: "Assign a verdict to every finding, then save the rubric for each report.",
+    wizardResultsIntro: "All current reports have been reviewed. View and export the scorecard.",
+    partialScoreboard: "Live score preview",
     independentAudits: "Independent LLM code audits",
     loadingCompetition: "Loading competition…",
     selectWorkspaceSubtitle: "Select a Git repository to create or open a review",
@@ -138,6 +217,8 @@ const translations = {
     noPreviousReviews: "No saved reviews",
     openReview: "Open review",
     createReview: "Create new review",
+    creatingReview: "Creating review\u2026",
+    creatingReviewStatus: "Creating a new review. Please wait\u2026",
     reviewCreated: "Review created and selected",
     reviewOpened: "Review opened",
     openOrCreateArena: "Continue a review or start a new one",
@@ -255,6 +336,11 @@ const translations = {
     gold20: "Gold /20",
     rigor5: "Rigor /5",
     saveScores: "Save scores",
+    savingFinding: "Saving finding…",
+    findingSaved: "Finding {finding} saved.",
+    savingScores: "Saving scores…",
+    rubricSaved: "Rubric scores saved.",
+    saveFailed: "Could not save: {error}",
     importManualReport: "Import manual report",
     importExplanation: "JSON report produced in any IDE or imported from another system. The model ID may contain only letters, digits, underscores and hyphens.",
     modelIdPlaceholder: "model-id",
@@ -319,9 +405,44 @@ const translations = {
     promptCopied: "Prompt copied",
     clipboardUnavailable: "Clipboard unavailable; select and copy the prompt text.",
     reportImported: "Report imported",
+    errorMissingPageToken: "The request did not include the dashboard security token. Reload the page from {url}, then try again.",
+    errorStalePageToken: "This page's security token is out of date, usually because the server restarted. Reload from {url}, then try again.",
+    errorOriginMismatch: "The request came from a different page origin. Open the dashboard at {url}, then try again.",
+    errorInvalidHost: "The dashboard only accepts requests through {url}. Open that exact address, then try again.",
   },
   "pt-BR": {
     languageLabel: "Idioma",
+    errorMissingPageToken: "A requisi\u00e7\u00e3o n\u00e3o incluiu o token de seguran\u00e7a do painel. Recarregue a p\u00e1gina em {url} e tente novamente.",
+    errorStalePageToken: "O token de seguran\u00e7a desta p\u00e1gina est\u00e1 desatualizado, geralmente porque o servidor foi reiniciado. Recarregue em {url} e tente novamente.",
+    errorOriginMismatch: "A requisi\u00e7\u00e3o veio de outra origem. Abra o painel em {url} e tente novamente.",
+    errorInvalidHost: "O painel aceita requisi\u00e7\u00f5es somente pelo endere\u00e7o {url}. Abra exatamente esse endere\u00e7o e tente novamente.",
+    wizardTitle: "Fluxo da revis\u00e3o",
+    wizardLoading: "Carregando o fluxo...",
+    wizardProgress: "Progresso do fluxo",
+    wizardStepRepository: "Reposit\u00f3rio",
+    wizardStepReview: "Configurar revis\u00e3o",
+    wizardStepReports: "Coletar relat\u00f3rios",
+    wizardStepAdjudication: "Validar achados",
+    wizardStepResults: "Placar",
+    wizardBack: "Voltar",
+    wizardContinue: "Continuar",
+    wizardDone: "Conclu\u00edda",
+    wizardCurrent: "Atual",
+    wizardReady: "Liberada",
+    wizardLocked: "Bloqueada",
+    wizardProgressLabel: "Etapa {current} de 5",
+    wizardRepoGate: "Salve um reposit\u00f3rio Git v\u00e1lido para liberar esta etapa.",
+    wizardReviewGate: "Crie ou abra uma revis\u00e3o v\u00e1lida para liberar esta etapa.",
+    wizardReportsGate: "Adicione um relat\u00f3rio v\u00e1lido e aguarde a auditoria desta revis\u00e3o para liberar esta etapa.",
+    wizardAuditRunning: "A auditoria desta revis\u00e3o ainda est\u00e1 em andamento.",
+    wizardFindingsGate: "Defina um veredito para cada achado para liberar o placar.",
+    wizardRubricGate: "Salve as notas da rubrica de cada relat\u00f3rio para liberar o placar.",
+    wizardRefreshFailed: "N\u00e3o foi poss\u00edvel atualizar o fluxo. Atualize a p\u00e1gina para continuar.",
+    wizardReviewIntro: "Escolha uma revis\u00e3o salva ou crie uma e defina suas prioridades.",
+    wizardReportsIntro: "Execute auditorias nos provedores selecionados ou importe um relat\u00f3rio. Cada auditoria exige novo consentimento.",
+    wizardAdjudicationIntro: "Defina um veredito para cada achado e salve a rubrica de cada relat\u00f3rio.",
+    wizardResultsIntro: "Todos os relat\u00f3rios atuais foram revisados. Consulte e exporte o placar.",
+    partialScoreboard: "Pr\u00e9via do placar",
     independentAudits: "Auditorias independentes de código com LLMs",
     loadingCompetition: "Carregando arena…",
     selectWorkspaceSubtitle: "Selecione um repositório Git para criar ou abrir uma revisão",
@@ -344,6 +465,8 @@ const translations = {
     noPreviousReviews: "Nenhuma revis\u00e3o salva",
     openReview: "Abrir revis\u00e3o",
     createReview: "Criar nova revis\u00e3o",
+    creatingReview: "Criando revis\u00e3o\u2026",
+    creatingReviewStatus: "Criando uma nova revis\u00e3o. Aguarde\u2026",
     reviewCreated: "Revis\u00e3o criada e selecionada",
     reviewOpened: "Revis\u00e3o aberta",
     openOrCreateArena: "Continuar uma revisão ou começar outra",
@@ -461,6 +584,11 @@ const translations = {
     gold20: "Destaque /20",
     rigor5: "Rigor /5",
     saveScores: "Salvar notas",
+    savingFinding: "Salvando achado…",
+    findingSaved: "Achado {finding} salvo.",
+    savingScores: "Salvando notas…",
+    rubricSaved: "Notas da rubrica salvas.",
+    saveFailed: "Não foi possível salvar: {error}",
     importManualReport: "Importar relatório manual",
     importExplanation: "Relatório JSON produzido em uma IDE ou importado de outro sistema. O ID do modelo pode conter apenas letras, números, sublinhados e hífens.",
     modelIdPlaceholder: "id-do-modelo",
@@ -529,6 +657,7 @@ const translations = {
 };
 
 let language = "en";
+let reviewCreationInProgress = false;
 
 function t(key, values) {
   const dictionary = translations[language] || translations.en;
@@ -616,6 +745,9 @@ function applyLanguage() {
   document.querySelectorAll("[data-i18n]").forEach(function (element) {
     element.textContent = t(element.dataset.i18n);
   });
+  if (reviewCreationInProgress) {
+    document.getElementById("create-review-button").textContent = t("creatingReview");
+  }
   document.querySelectorAll("[data-i18n-placeholder]").forEach(function (element) {
     element.placeholder = t(element.dataset.i18nPlaceholder);
   });
@@ -646,6 +778,7 @@ function applyLanguage() {
   if (dashboardStatus.models) renderModels();
   if (state.leaderboard) renderBoard();
   if (dashboardStatus.job) renderJob(dashboardStatus.job);
+  renderWizard();
   if (folderPickerData && document.getElementById("folder-dialog").open) {
     renderFolderPicker(folderPickerData);
   }
@@ -672,7 +805,17 @@ function setMessage(id, text) {
   const element = document.getElementById(id);
   delete element.dataset.translationKey;
   delete element.dataset.translationValues;
+  delete element.dataset.state;
   element.textContent = text || "";
+}
+function setSaveFeedback(id, key, values, state) {
+  document.getElementById(id).dataset.state = state;
+  setLocalizedMessage(id, key, values);
+}
+function setSaveError(id, error) {
+  setSaveFeedback(id, "saveFailed", {
+    error: error && error.message ? error.message : String(error),
+  }, "error");
 }
 function setRepositoryError(id, error) {
   const message = String(error.message || "");
@@ -702,7 +845,17 @@ async function api(path, payload) {
     body: hasPayload ? JSON.stringify(payload) : undefined,
   });
   const data = await response.json();
-  if (!response.ok) throw Error(data.error || "Request failed");
+  if (!response.ok) {
+    const errorKeys = {
+      missing_page_token: "errorMissingPageToken",
+      stale_page_token: "errorStalePageToken",
+      origin_mismatch: "errorOriginMismatch",
+      invalid_host: "errorInvalidHost",
+    };
+    const errorKey = errorKeys[data.error_code];
+    if (errorKey) throw Error(t(errorKey, {url: data.dashboard_url || location.origin}));
+    throw Error(data.error || "Request failed");
+  }
   return data;
 }
 function saveFile(name, content, type) {
@@ -808,9 +961,10 @@ function updateWorkspaceActions() {
   document.getElementById("save-repository-button").disabled =
     !selectedPath || (selectedPath === savedPath && dashboardStatus.repository_available);
   document.getElementById("create-review-button").disabled =
-    !dashboardStatus.repository_available || selectedPath !== savedPath;
+    reviewCreationInProgress || !dashboardStatus.repository_available || selectedPath !== savedPath;
   document.getElementById("open-review-button").disabled =
     !document.getElementById("review-history").value;
+  renderWizard();
 }
 
 async function renderReviewHistory() {
@@ -876,7 +1030,6 @@ async function reload() {
     await renderReviewHistory();
     const exportButton = document.querySelector('button[onclick="exportJson()"]');
     if (exportButton) exportButton.disabled = !hasWorkspace;
-    document.getElementById("arena-content").hidden = !hasWorkspace;
     if (hasWorkspace) {
       state = await api("/api/data");
       updateActiveReviewLabel();
@@ -897,6 +1050,8 @@ async function reload() {
       clear("summary");
       clear("board");
       clear("goldpodium");
+      clear("partial-scores");
+      setMessage("partial-score-status", "");
       clear("run-models");
       contestantSelection = null;
       clear("findings");
@@ -905,6 +1060,8 @@ async function reload() {
       setMessage("contestants-count", "");
     }
     renderJob(dashboardStatus.job);
+    wizardDataError = false;
+    wizardDataReady = true;
     updateWorkspaceActions();
     clearTimeout(pollTimer);
     if (dashboardStatus.job && ["queued", "running"].includes(dashboardStatus.job.status)) {
@@ -912,6 +1069,9 @@ async function reload() {
     }
   } catch (error) {
     document.getElementById("project").textContent = error.message;
+    wizardDataReady = false;
+    wizardDataError = true;
+    renderWizard();
   }
 }
 
@@ -929,6 +1089,145 @@ function reconcileContestantSelection(previous, models, reports) {
   return { runnable: runnable, selected: selected };
 }
 // END contestant-selection
+// BEGIN wizard-state (pure helper, unit-tested under Node without a DOM)
+function deriveWizardState(status, data, repositoryInput) {
+  const repositoryReady = status.repository_available === true &&
+    String(repositoryInput || "").trim() === String(status.repository_path || "");
+  const workspaceReady = repositoryReady && !!status.workspace && !!data.manifest;
+  const reports = data.reports || {};
+  const judgments = data.judgments || {};
+  const reportIds = Object.keys(reports);
+  const job = status.job;
+  const auditRunning = !!job && job.workspace === status.workspace &&
+    ["queued", "running"].includes(job.status);
+  const reportsReady = workspaceReady && reportIds.length > 0 && !auditRunning;
+  const rubricLimits = { improvements: 15, gold: 20, rigor: 5 };
+  function reportFindingsReviewed(id) {
+    const report = reports[id] || {};
+    const judgment = judgments[id] || {};
+    const findingJudgments = judgment.findings || {};
+    return Array.isArray(report.findings) && report.findings.every(
+      function (finding) {
+        const saved = Object.prototype.hasOwnProperty.call(findingJudgments, finding.id)
+          ? findingJudgments[finding.id] : null;
+        return !!saved && ["confirmed", "false_positive"].includes(saved.verdict);
+      }
+    );
+  }
+  function reportRubricSaved(id) {
+    const judgment = judgments[id] || {};
+    const rubric = judgment.rubric || {};
+    return Object.keys(rubricLimits).every(function (key) {
+      return Number.isInteger(rubric[key]) && rubric[key] >= 0 && rubric[key] <= rubricLimits[key];
+    });
+  }
+  const findingsReady = reportsReady && reportIds.every(reportFindingsReviewed);
+  const rubricsReady = reportsReady && reportIds.every(reportRubricSaved);
+  const adjudicationReady = findingsReady && rubricsReady;
+  const complete = [repositoryReady, workspaceReady, reportsReady, adjudicationReady];
+  const unlocked = [true, false, false, false, false];
+  for (let index = 1; index < unlocked.length; index += 1) {
+    unlocked[index] = unlocked[index - 1] && complete[index - 1];
+  }
+  return {
+    complete: complete,
+    unlocked: unlocked,
+    maxUnlocked: unlocked.lastIndexOf(true),
+    findingsReady: findingsReady,
+    rubricsReady: rubricsReady,
+    auditRunning: auditRunning,
+  };
+}
+// END wizard-state
+const wizardStepKeys = [
+  "wizardStepRepository", "wizardStepReview", "wizardStepReports",
+  "wizardStepAdjudication", "wizardStepResults",
+];
+function wizardGateKeyFor(step, progress) {
+  for (let gate = 0; gate < step; gate += 1) {
+    if (progress.complete[gate]) continue;
+    if (gate === 0) return "wizardRepoGate";
+    if (gate === 1) return "wizardReviewGate";
+    if (gate === 2) return progress.auditRunning ? "wizardAuditRunning" : "wizardReportsGate";
+    return progress.findingsReady ? "wizardRubricGate" : "wizardFindingsGate";
+  }
+  return "";
+}
+function renderWizard() {
+  const panels = document.querySelectorAll("[data-wizard-panel]");
+  const buttons = document.querySelectorAll("[data-wizard-step]");
+  if (!wizardDataReady) {
+    setLocalizedMessage("wizard-message", wizardDataError ? "wizardRefreshFailed" : "wizardLoading");
+    panels.forEach(function (panel) { panel.hidden = true; });
+    buttons.forEach(function (button, index) {
+      button.removeAttribute("aria-current");
+      button.setAttribute("aria-disabled", "true");
+      document.getElementById("wizard-status-" + index).textContent = t("wizardLocked");
+      document.getElementById("wizard-hint-" + index).textContent = "";
+    });
+    document.querySelectorAll(".wizard-next, .wizard-back").forEach(function (button) {
+      button.disabled = true;
+    });
+    return;
+  }
+  const repositoryInput = document.getElementById("repo-path").value;
+  const progress = deriveWizardState(dashboardStatus, state, repositoryInput);
+  wizardProgressState = progress;
+  if (wizardCurrentStep === null) {
+    wizardCurrentStep = progress.complete.findIndex(function (complete) { return !complete; });
+    if (wizardCurrentStep < 0) wizardCurrentStep = 4;
+  }
+  if (wizardCurrentStep > progress.maxUnlocked) wizardCurrentStep = progress.maxUnlocked;
+  setMessage("wizard-message", "");
+  const current = wizardCurrentStep;
+  const progressBar = document.getElementById("wizard-progress");
+  progressBar.setAttribute("aria-valuenow", String(current + 1));
+  progressBar.setAttribute("aria-valuetext", t("wizardProgressLabel", {current: current + 1}));
+  document.getElementById("wizard-progress-fill").style.width = ((current + 1) * 20) + "%";
+  buttons.forEach(function (button) {
+    const index = Number(button.dataset.wizardStep);
+    const unlocked = progress.unlocked[index];
+    const complete = progress.complete[index] || (index === 4 && progress.complete[3]);
+    const isCurrent = index === current;
+    const statusKey = !unlocked ? "wizardLocked" :
+      (isCurrent ? "wizardCurrent" : (complete ? "wizardDone" : "wizardReady"));
+    const hintKey = unlocked ? "" : wizardGateKeyFor(index, progress);
+    const hint = hintKey ? t(hintKey) : "";
+    button.classList.toggle("is-complete", !!complete);
+    button.setAttribute("aria-disabled", String(!unlocked));
+    if (isCurrent) button.setAttribute("aria-current", "step");
+    else button.removeAttribute("aria-current");
+    document.getElementById("wizard-status-" + index).textContent = t(statusKey);
+    document.getElementById("wizard-hint-" + index).textContent = hint;
+    button.setAttribute("aria-label",
+      (index + 1) + ". " + t(wizardStepKeys[index]) + ". " + t(statusKey) +
+      (hint ? ". " + hint : ""));
+  });
+  panels.forEach(function (panel) {
+    const index = Number(panel.dataset.wizardPanel);
+    panel.hidden = index !== current || !progress.unlocked[index];
+  });
+  document.querySelectorAll(".wizard-next").forEach(function (button) {
+    const index = Number(button.dataset.wizardNext);
+    button.disabled = !progress.complete[index];
+  });
+  document.querySelectorAll(".wizard-back").forEach(function (button) {
+    const index = Number(button.dataset.wizardBack);
+    button.disabled = index <= 0 || !progress.unlocked[index - 1];
+  });
+}
+function goToWizardStep(index) {
+  if (!wizardDataReady || !wizardProgressState) return;
+  if (!wizardProgressState.unlocked[index]) {
+    const gateKey = wizardGateKeyFor(index, wizardProgressState);
+    if (gateKey) setLocalizedMessage("wizard-message", gateKey);
+    return;
+  }
+  wizardCurrentStep = index;
+  renderWizard();
+  const heading = document.getElementById("wizard-heading-" + index);
+  if (heading) heading.focus();
+}
 function jobIsActive(job) {
   return !!job && ["queued", "running"].includes(job.status);
 }
@@ -1076,8 +1375,26 @@ function renderBoard() {
       );
       podium.append(card);
     });
+  renderPartialScores();
+}
+function renderPartialScores() {
+  const root = clear("partial-scores");
+  const rows = state.leaderboard || [];
+  const pending = rows.reduce(function (total, row) { return total + row.pending; }, 0);
+  setMessage("partial-score-status", rows.length ? t("pendingReview") + ": " + pending : "");
+  rows.forEach(function (row) {
+    const card = node("div", "card");
+    card.append(
+      node("div", "eyebrow", row.model),
+      node("div", "partial-score-total", row.total),
+      node("p", "muted", t("total") + " | " + t("validatedFindings") + ": " + row.confirmed),
+    );
+    root.append(card);
+  });
 }
 function showReport() {
+  setMessage("finding-save-message", "");
+  setMessage("rubric-save-message", "");
   const id = document.getElementById("model").value;
   const report = state.reports[id];
   if (!report) {
@@ -1151,8 +1468,25 @@ function showReport() {
     fabricated.type = "checkbox";
     fabricated.checked = !!previous.fabricated_evidence;
     fabricatedBox.append(fabricated);
+    function clearFindingFeedback() {
+      setMessage("finding-save-message", "");
+    }
+    [verdict, severity, fabricated].forEach(function (field) {
+      field.addEventListener("change", clearFindingFeedback);
+    });
+    key.addEventListener("input", clearFindingFeedback);
     const save = localizedNode("button", "primary", "save");
     save.onclick = async function () {
+      const disabledControls = [
+        verdict, severity, key, fabricated, document.getElementById("model"), save,
+      ];
+      const previouslyDisabled = disabledControls.map(function (control) {
+        return control.disabled;
+      });
+      disabledControls.forEach(function (control) { control.disabled = true; });
+      save.dataset.i18n = "savingFinding";
+      save.textContent = t("savingFinding");
+      setSaveFeedback("finding-save-message", "savingFinding", {}, "pending");
       try {
         await api("/api/adjudicate", {
           model: id, finding: finding.id, verdict: verdict.value,
@@ -1160,8 +1494,19 @@ function showReport() {
           fabricated_evidence: fabricated.checked,
         });
         await reload();
+        setSaveFeedback("finding-save-message", "findingSaved", {
+          finding: finding.id,
+        }, "success");
       } catch (error) {
-        alert(error.message);
+        setSaveError("finding-save-message", error);
+      } finally {
+        if (save.isConnected) {
+          save.dataset.i18n = "save";
+          save.textContent = t("save");
+        }
+        disabledControls.forEach(function (control, index) {
+          control.disabled = previouslyDisabled[index];
+        });
       }
     };
     controls.append(verdictBox, severityBox, keyBox, fabricatedBox, save);
@@ -1192,6 +1537,13 @@ async function openReview() {
   }
 }
 async function createReview() {
+  if (reviewCreationInProgress) return;
+  const button = document.getElementById("create-review-button");
+  reviewCreationInProgress = true;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  button.textContent = t("creatingReview");
+  setLocalizedMessage("workspace-message", "creatingReviewStatus");
   try {
     const criteria = {};
     document.querySelectorAll(".priority-slider").forEach(function (slider) {
@@ -1208,6 +1560,11 @@ async function createReview() {
     await reload();
   } catch (error) {
     setRepositoryError("workspace-message", error);
+  } finally {
+    reviewCreationInProgress = false;
+    button.removeAttribute("aria-busy");
+    button.textContent = t("createReview");
+    updateWorkspaceActions();
   }
 }
 async function startRun() {
@@ -1254,6 +1611,21 @@ async function copyPrompt() {
   }
 }
 async function saveRubric() {
+  const button = document.getElementById("save-rubric-button");
+  const disabledControls = [
+    document.getElementById("model"),
+    document.getElementById("improvements"),
+    document.getElementById("goldscore"),
+    document.getElementById("rigor"),
+    button,
+  ];
+  const previouslyDisabled = disabledControls.map(function (control) {
+    return control.disabled;
+  });
+  disabledControls.forEach(function (control) { control.disabled = true; });
+  button.dataset.i18n = "savingScores";
+  button.textContent = t("savingScores");
+  setSaveFeedback("rubric-save-message", "savingScores", {}, "pending");
   try {
     await api("/api/rubric", {
       model: document.getElementById("model").value,
@@ -1262,8 +1634,15 @@ async function saveRubric() {
       rigor: +document.getElementById("rigor").value,
     });
     await reload();
+    setSaveFeedback("rubric-save-message", "rubricSaved", {}, "success");
   } catch (error) {
-    alert(error.message);
+    setSaveError("rubric-save-message", error);
+  } finally {
+    button.dataset.i18n = "saveScores";
+    button.textContent = t("saveScores");
+    disabledControls.forEach(function (control, index) {
+      control.disabled = previouslyDisabled[index];
+    });
   }
 }
 async function importReport() {
@@ -1314,8 +1693,27 @@ languageToggle.addEventListener("click", function (event) {
   catch (error) { /* Keep the selected language for this page session. */ }
   applyLanguage();
 });
+document.getElementById("wizard-nav").addEventListener("click", function (event) {
+  const button = event.target.closest("[data-wizard-step]");
+  if (button) goToWizardStep(Number(button.dataset.wizardStep));
+});
+document.querySelectorAll(".wizard-next").forEach(function (button) {
+  button.addEventListener("click", function () {
+    goToWizardStep(Number(button.dataset.wizardNext) + 1);
+  });
+});
+document.querySelectorAll(".wizard-back").forEach(function (button) {
+  button.addEventListener("click", function () {
+    goToWizardStep(Number(button.dataset.wizardBack) - 1);
+  });
+});
 document.getElementById("repo-path").addEventListener("input", updateWorkspaceActions);
 document.getElementById("review-history").addEventListener("change", updateWorkspaceActions);
+["improvements", "goldscore", "rigor"].forEach(function (id) {
+  document.getElementById(id).addEventListener("input", function () {
+    setMessage("rubric-save-message", "");
+  });
+});
 updateWorkspaceActions();
 applyLanguage();
 reload();
@@ -1552,10 +1950,42 @@ def create_server(
         def _host_allowed(self) -> bool:
             return self.headers.get("Host") == f"127.0.0.1:{self.server.server_port}"
 
+        def _dashboard_url(self) -> str:
+            return f"http://127.0.0.1:{self.server.server_port}"
+
+        def _host_error(self) -> dict:
+            dashboard_url = self._dashboard_url()
+            return {
+                "error": f"Invalid host. Open the dashboard at {dashboard_url}.",
+                "error_code": "invalid_host",
+                "dashboard_url": dashboard_url,
+            }
+
         def _authorized(self) -> bool:
             origin = self.headers.get("Origin", "")
-            expected = f"http://127.0.0.1:{self.server.server_port}"
+            expected = self._dashboard_url()
             return self.headers.get("X-Arena-Token") == token and (not origin or origin == expected)
+
+        def _authorization_error(self) -> dict:
+            expected = self._dashboard_url()
+            origin = self.headers.get("Origin", "")
+            if origin and origin != expected:
+                error_code = "origin_mismatch"
+                message = f"Forbidden: request origin mismatch. Open the dashboard at {expected}."
+            elif not self.headers.get("X-Arena-Token"):
+                error_code = "missing_page_token"
+                message = f"Forbidden: the dashboard security token is missing. Reload from {expected}."
+            else:
+                error_code = "stale_page_token"
+                message = (
+                    "Forbidden: this page's security token is out of date, possibly because "
+                    f"the server restarted. Reload from {expected}."
+                )
+            return {
+                "error": message,
+                "error_code": error_code,
+                "dashboard_url": expected,
+            }
 
         def _read_payload(self) -> dict:
             try:
@@ -1599,7 +2029,7 @@ def create_server(
 
         def do_GET(self):  # noqa: N802
             if not self._host_allowed():
-                self._json(403, {"error": "Invalid host"})
+                self._json(403, self._host_error())
                 return
             if self.path == "/":
                 page = (
@@ -1646,10 +2076,10 @@ def create_server(
 
         def do_POST(self):  # noqa: N802
             if not self._host_allowed():
-                self._json(403, {"error": "Invalid host"})
+                self._json(403, self._host_error())
                 return
             if not self._authorized():
-                self._json(403, {"error": "Forbidden"})
+                self._json(403, self._authorization_error())
                 return
             allowed = {
                 "/api/folders", "/api/workspace/open", "/api/workspace/init", "/api/run",
