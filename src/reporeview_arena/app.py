@@ -319,9 +319,17 @@ const translations = {
     promptCopied: "Prompt copied",
     clipboardUnavailable: "Clipboard unavailable; select and copy the prompt text.",
     reportImported: "Report imported",
+    errorMissingPageToken: "The request did not include the dashboard security token. Reload the page from {url}, then try again.",
+    errorStalePageToken: "This page's security token is out of date, usually because the server restarted. Reload from {url}, then try again.",
+    errorOriginMismatch: "The request came from a different page origin. Open the dashboard at {url}, then try again.",
+    errorInvalidHost: "The dashboard only accepts requests through {url}. Open that exact address, then try again.",
   },
   "pt-BR": {
     languageLabel: "Idioma",
+    errorMissingPageToken: "A requisi\u00e7\u00e3o n\u00e3o incluiu o token de seguran\u00e7a do painel. Recarregue a p\u00e1gina em {url} e tente novamente.",
+    errorStalePageToken: "O token de seguran\u00e7a desta p\u00e1gina est\u00e1 desatualizado, geralmente porque o servidor foi reiniciado. Recarregue em {url} e tente novamente.",
+    errorOriginMismatch: "A requisi\u00e7\u00e3o veio de outra origem. Abra o painel em {url} e tente novamente.",
+    errorInvalidHost: "O painel aceita requisi\u00e7\u00f5es somente pelo endere\u00e7o {url}. Abra exatamente esse endere\u00e7o e tente novamente.",
     independentAudits: "Auditorias independentes de código com LLMs",
     loadingCompetition: "Carregando arena…",
     selectWorkspaceSubtitle: "Selecione um repositório Git para criar ou abrir uma revisão",
@@ -702,7 +710,17 @@ async function api(path, payload) {
     body: hasPayload ? JSON.stringify(payload) : undefined,
   });
   const data = await response.json();
-  if (!response.ok) throw Error(data.error || "Request failed");
+  if (!response.ok) {
+    const errorKeys = {
+      missing_page_token: "errorMissingPageToken",
+      stale_page_token: "errorStalePageToken",
+      origin_mismatch: "errorOriginMismatch",
+      invalid_host: "errorInvalidHost",
+    };
+    const errorKey = errorKeys[data.error_code];
+    if (errorKey) throw Error(t(errorKey, {url: data.dashboard_url || location.origin}));
+    throw Error(data.error || "Request failed");
+  }
   return data;
 }
 function saveFile(name, content, type) {
@@ -1552,10 +1570,42 @@ def create_server(
         def _host_allowed(self) -> bool:
             return self.headers.get("Host") == f"127.0.0.1:{self.server.server_port}"
 
+        def _dashboard_url(self) -> str:
+            return f"http://127.0.0.1:{self.server.server_port}"
+
+        def _host_error(self) -> dict:
+            dashboard_url = self._dashboard_url()
+            return {
+                "error": f"Invalid host. Open the dashboard at {dashboard_url}.",
+                "error_code": "invalid_host",
+                "dashboard_url": dashboard_url,
+            }
+
         def _authorized(self) -> bool:
             origin = self.headers.get("Origin", "")
-            expected = f"http://127.0.0.1:{self.server.server_port}"
+            expected = self._dashboard_url()
             return self.headers.get("X-Arena-Token") == token and (not origin or origin == expected)
+
+        def _authorization_error(self) -> dict:
+            expected = self._dashboard_url()
+            origin = self.headers.get("Origin", "")
+            if origin and origin != expected:
+                error_code = "origin_mismatch"
+                message = f"Forbidden: request origin mismatch. Open the dashboard at {expected}."
+            elif not self.headers.get("X-Arena-Token"):
+                error_code = "missing_page_token"
+                message = f"Forbidden: the dashboard security token is missing. Reload from {expected}."
+            else:
+                error_code = "stale_page_token"
+                message = (
+                    "Forbidden: this page's security token is out of date, possibly because "
+                    f"the server restarted. Reload from {expected}."
+                )
+            return {
+                "error": message,
+                "error_code": error_code,
+                "dashboard_url": expected,
+            }
 
         def _read_payload(self) -> dict:
             try:
@@ -1599,7 +1649,7 @@ def create_server(
 
         def do_GET(self):  # noqa: N802
             if not self._host_allowed():
-                self._json(403, {"error": "Invalid host"})
+                self._json(403, self._host_error())
                 return
             if self.path == "/":
                 page = (
@@ -1646,10 +1696,10 @@ def create_server(
 
         def do_POST(self):  # noqa: N802
             if not self._host_allowed():
-                self._json(403, {"error": "Invalid host"})
+                self._json(403, self._host_error())
                 return
             if not self._authorized():
-                self._json(403, {"error": "Forbidden"})
+                self._json(403, self._authorization_error())
                 return
             allowed = {
                 "/api/folders", "/api/workspace/open", "/api/workspace/init", "/api/run",
