@@ -7,6 +7,7 @@
 
 specification {
 
+  color violet #6353b8
   color arenaTeal #1f7a78
 
   element actor {
@@ -345,7 +346,7 @@ deployment {
     description 'The reviewer and the two things they operate that are not Arena code: the browser tab and, for manual audits, an IDE or coding agent.'
     metadata {
       criteria 'Clients and actors: the people involved in an audit and the programs they operate directly, such as the browser dashboard and an IDE or coding agent.'
-      order 'declared'
+      displayOrder 'declared'
     }
 
     person = instanceOf reviewer
@@ -361,7 +362,7 @@ deployment {
     description 'Your own machine. Nothing in Arena listens on any other interface or runs anywhere else.'
     metadata {
       criteria 'The main process and its modules: the reporeview Python process, the code under src/reporeview_arena, and the library loaded inside that process.'
-      order 'declared'
+      displayOrder 'declared'
     }
 
     app = frame 'reporeview process' {
@@ -369,7 +370,7 @@ deployment {
       technology 'Python 3.11+'
       metadata {
         criteria 'Modules of src/reporeview_arena that run inside the reporeview process, plus the LiteLLM library it loads in-process.'
-        order 'dependencies'
+        displayOrder 'dependencies'
       }
 
       cli = instanceOf arena.proc.cli
@@ -393,7 +394,7 @@ deployment {
     description 'Child processes started on demand. Arena has no daemon, queue or sidecar of its own.'
     metadata {
       criteria 'Other processes and sidecars that the main process starts or talks to on the same machine, which today means only the git subprocess.'
-      order 'declared'
+      displayOrder 'declared'
     }
 
     gitCli = instanceOf git {
@@ -405,7 +406,7 @@ deployment {
     description 'Plain files. There is no database.'
     metadata {
       criteria 'Stores: the files and folders the system reads or writes, meaning the arena workspace folder, models.json, the target checkout and the provider keys in the environment.'
-      order 'declared'
+      displayOrder 'declared'
     }
 
     workspace = frame 'Arena workspace folder' {
@@ -413,7 +414,7 @@ deployment {
       technology 'Filesystem'
       metadata {
         criteria 'The six artifacts Arena writes inside one arena folder: manifest, prompt, snapshot, reports, judgments and failures.'
-        order 'declared'
+        displayOrder 'declared'
       }
 
       manifest = instanceOf arena.workspace.manifest
@@ -429,7 +430,7 @@ deployment {
       technology 'Filesystem · environment'
       metadata {
         criteria 'Files and settings that Arena only reads: the target Git checkout, models.json and the provider API keys in the process environment.'
-        order 'declared'
+        displayOrder 'declared'
       }
 
       repo = instanceOf targetRepo {
@@ -448,7 +449,7 @@ deployment {
     description 'The only network destinations. Source fragments leave the machine here, and only after the reviewer confirms.'
     metadata {
       criteria 'Model endpoints: the LLM provider APIs that LiteLLM sends audit conversations to, whether named in models.example.json or set through api_base.'
-      order 'declared'
+      displayOrder 'declared'
     }
 
     openai = instanceOf providers.openai
