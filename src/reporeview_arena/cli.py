@@ -15,6 +15,22 @@ from .storage import load_json, save_json
 from .workspace import DEFAULT_FOCUS, initialize_workspace
 
 
+def _load_provider_environment() -> None:
+    dotenv_path = Path.cwd() / ".env"
+    if not dotenv_path.is_file():
+        return
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        print(
+            "A .env file was found, but python-dotenv is unavailable. "
+            "Install the [llm] extra or export provider keys in this shell.",
+            file=sys.stderr,
+        )
+        return
+    load_dotenv(dotenv_path=dotenv_path, override=False)
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="reporeview", description="Multi-LLM code audit arena")
     command = root.add_subparsers(dest="command", required=True)
@@ -38,7 +54,10 @@ def parser() -> argparse.ArgumentParser:
     imp.add_argument("--file", required=True, type=Path)
     web = command.add_parser("web", help="Launch the local workspace, audit and review dashboard")
     web.add_argument("--workspace", type=Path, help="Optional initial audit workspace")
-    web.add_argument("--models", type=Path, help="Optional path to models.json for web audits")
+    web.add_argument(
+        "--models", type=Path,
+        help="Path to models.json for web audits (defaults to ./models.json when present)",
+    )
     web.add_argument("--port", type=int, default=8765)
     score = command.add_parser("score", help="Output current validated scorecard as JSON")
     score.add_argument("--workspace", required=True, type=Path)
@@ -69,7 +88,14 @@ def execute(args: argparse.Namespace) -> None:
         print("Review manifest.json excluded files. The snapshot is for external LLM sharing.")
         return
     if args.command == "web":
-        serve(args.workspace, port=args.port, models=args.models)
+        models_path = args.models
+        if models_path is None:
+            default_models_path = Path("models.json")
+            if default_models_path.is_file():
+                models_path = default_models_path.resolve()
+        if models_path is not None:
+            _load_provider_environment()
+        serve(args.workspace, port=args.port, models=models_path)
         return
     workspace = args.workspace.resolve()
     if not (workspace / "manifest.json").exists():
@@ -92,6 +118,7 @@ def execute(args: argparse.Namespace) -> None:
                 raise ValueError("Each model must specify its LiteLLM model name")
             if (workspace / "reports" / f"{m['id']}.json").exists():
                 raise ValueError(f"Refusing to overwrite an existing audit: {m['id']}")
+        _load_provider_environment()
         print(f"Sending read-only snapshot fragments to {len(approved)} model providers.")
         outcome = asyncio.run(audit_many(workspace, approved, concurrency=args.concurrency,
                                         max_steps=args.max_steps, retries=args.retries,

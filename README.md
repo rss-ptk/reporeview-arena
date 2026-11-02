@@ -74,7 +74,8 @@ arenas/project-2026/
 ```bash
 cp models.example.json models.json
 # Edit provider/model IDs to versions available in YOUR provider account.
-# Export API keys into your environment, e.g. via your secrets manager.
+# Export API keys into your environment or put them in an untracked .env in this directory.
+# reporeview run/web loads .env at startup; existing environment variables take precedence.
 # NEVER add API keys to models.json or commit them.
 reporeview run --workspace ./arenas/project-2026 --models models.json --concurrency 2 --max-steps 35 --confirm-send-code
 ```
@@ -95,7 +96,7 @@ reporeview run --workspace ./arenas/project-2026 --models models.json --concurre
 
 Each tool round is another API request. Reducing concurrency does not reset daily quotas or restore an unavailable model. Check [OpenRouter rate limits](https://openrouter.ai/docs/api/reference/limits) and [provider errors](https://openrouter.ai/docs/api/reference/errors) when these failures persist.
 
-Failures include a `stage` (`provider`, `report` or `workspace`) and an actionable message. Provider failures include an HTTP status and `Retry-After` when available; Arena diagnostics omit SDK exception messages and request payloads. Invalid, empty or truncated model reports are saved locally to `failures/<model-id>.json` with `raw_response`, `validation_error`, `finish_reason` and token usage. Inspect this file to distinguish malformed JSON, schema problems and invalid file/line citations. The latest rejected response replaces an older failure artifact for the same model; it is never accepted as a scored report. If output was truncated, adjust that model's `max_tokens` in `models.json` or request a shorter report. To rerun only failed contestants, set `"enabled": false` on entries with existing successful reports. In the dashboard this is automatic: contestants with a saved report are locked and only the rest can be ticked.
+Failures include a `stage` (`provider`, `report` or `workspace`) and an actionable message. Provider failures include an HTTP status and `Retry-After` when available; Arena diagnostics omit SDK exception messages and request payloads. Invalid, empty or truncated model reports are saved locally to `failures/<model-id>.json` with `raw_response`, `validation_error`, `finish_reason`, the configured `max_tokens` limit, last-call token usage and aggregate token usage. Inspect this file to distinguish malformed JSON, schema problems and invalid file/line citations. The latest rejected response replaces an older failure artifact for the same model; it is never accepted as a scored report. Arena defaults to 16,384 output tokens per request; set `max_tokens` in a model's `models.json` entry to override it. If output is still truncated, raise that model's limit or request a shorter report. To rerun only failed contestants, set `"enabled": false` on entries with existing successful reports. In the dashboard this is automatic: contestants with a saved report are locked and only the rest can be ticked.
 
 ## Option B: audits via VS Code or other coding agents
 
@@ -117,11 +118,11 @@ All finding paths must refer to approved snapshot files. Missing / malformed man
 ## Adjudicate, rank and compare features
 
 ```bash
-reporeview web --workspace ./arenas/project-2026 --models ./models.json
+reporeview web --workspace ./arenas/project-2026
 # Open http://127.0.0.1:8765
 ```
 
-The dashboard can also be started without `--workspace` using `reporeview web --models ./models.json`. In the Control Page, choose and save the root of one local Git checkout, then create a review or open one from that repository's history. The browser does not ask where review files should go: each review gets a unique folder under the app's fixed per-user data directory, so switching repositories keeps their histories separate. The only configurable path in the Control Page is the checkout root.
+When `models.json` exists in the current directory, `reporeview web` loads its enabled models automatically. Pass `--models <path>` to use a different file; without either file, provider audits stay disabled while manual import remains available. The CLI loads provider keys from the process environment or an untracked `.env` in the current directory, with existing environment variables taking precedence. The dashboard can also be started without `--workspace`. In the Control Page, choose and save the root of one local Git checkout, then create a review or open one from that repository's history. The browser does not ask where review files should go: each review gets a unique folder under the app's fixed per-user data directory, so switching repositories keeps their histories separate. The only configurable path in the Control Page is the checkout root.
 
 The fixed data directory follows the operating system's standard per-user location:
 

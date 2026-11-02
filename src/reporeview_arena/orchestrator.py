@@ -39,6 +39,8 @@ TOOLS = [
     }},
 ]
 
+DEFAULT_MAX_TOKENS = 16_384
+
 
 def model_slug(name: str) -> str:
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", name):
@@ -141,12 +143,15 @@ async def _complete(completion, opts: dict[str, Any], model_id: str,
             await asyncio.sleep(delay)
 
 
-def _report_error(exc: Exception, response_text: str, finish_reason: str | None) -> str:
+def _report_error(exc: Exception, response_text: str, finish_reason: str | None,
+                  max_tokens: Any) -> str:
     # Interpret our own validator's messages, but do not print interpolated model
     # fields (an invalid file path or severity could contain arbitrary output).
     validation_error = str(exc)
     if finish_reason == "length":
-        return "Model report was truncated at the output token limit. Increase max_tokens in models.json or request a shorter report."
+        limit = f"{max_tokens:,}" if isinstance(max_tokens, int) else str(max_tokens)
+        return (f"Model report was truncated at the output token limit (max_tokens={limit}). "
+                "Increase this model's max_tokens in models.json or request a shorter report.")
     if not response_text.strip():
         return "Model returned an empty report. Check the output token budget and model compatibility."
     if validation_error.startswith(("No JSON object", "Report must contain valid JSON",
@@ -194,9 +199,11 @@ async def audit_one(
     ]
     max_steps = max(1, min(int(max_steps), 200))
     usage = {"prompt_tokens": 0, "completion_tokens": 0, "calls": 0, "tools": 0, "retries": 0}
+    last_call_usage: dict[str, int] = {}
     started = time.monotonic()
     response_text = ""
     finish_reason = None
+    max_tokens = model.get("max_tokens", DEFAULT_MAX_TOKENS)
     base_messages = list(messages)
     batches: list[list[dict[str, Any]]] = []
     for step in range(max_steps + 1):
@@ -211,7 +218,7 @@ async def audit_one(
             messages.append({"role": "user", "content": "Tool budget exhausted. Produce your complete single JSON report now with only verified citations; list unexamined areas in limitations. No more tools."})
         opts: dict[str, Any] = {
             "model": model["model"], "messages": messages, "timeout": timeout,
-            "max_tokens": model.get("max_tokens", 8000),
+            "max_tokens": max_tokens,
             # Arena owns retries; disable SDK retries to keep the budget bounded.
             "num_retries": 0, "max_retries": 0,
         }
@@ -223,10 +230,17 @@ async def audit_one(
         reply, retried = await _complete(completion, opts, model_id, retries, retry_delay)
         usage["retries"] += retried
         usage["calls"] += 1
+        last_call_usage = {}
         observed = getattr(reply, "usage", None)
         if observed:
-            usage["prompt_tokens"] += int(getattr(observed, "prompt_tokens", 0) or 0)
-            usage["completion_tokens"] += int(getattr(observed, "completion_tokens", 0) or 0)
+            call_prompt_tokens = int(getattr(observed, "prompt_tokens", 0) or 0)
+            call_completion_tokens = int(getattr(observed, "completion_tokens", 0) or 0)
+            usage["prompt_tokens"] += call_prompt_tokens
+            usage["completion_tokens"] += call_completion_tokens
+            last_call_usage = {
+                "prompt_tokens": call_prompt_tokens,
+                "completion_tokens": call_completion_tokens,
+            }
         answer = reply.choices[0].message
         content = getattr(answer, "content", "") or ""
         tool_calls = list(getattr(answer, "tool_calls", None) or [])
@@ -261,13 +275,14 @@ async def audit_one(
         validate_locations(report, workspace / "snapshot")
     except (ValueError, TypeError, KeyError) as exc:
         details = {"error_type": type(exc).__name__, "stage": "report",
-                   "error": _report_error(exc, response_text, finish_reason)}
+                   "error": _report_error(exc, response_text, finish_reason, max_tokens)}
         failure_file = Path("failures") / f"{model_id}.json"
         try:
             save_json(workspace / failure_file, {
                 **details, "model_id": model_id, "provider_model": model["model"],
                 "raw_response": response_text, "validation_error": str(exc),
-                "finish_reason": finish_reason, "usage": usage,
+                "finish_reason": finish_reason, "max_tokens": max_tokens,
+                "last_call_usage": last_call_usage, "usage": usage,
             })
         except OSError:
             details["error"] += " Could not save the failed response locally."
