@@ -26,6 +26,45 @@ REVIEW_FOCUS_CRITERIA = {
     "testing_observability": ("Testing and observability", 2),
 }
 
+REVIEW_FOCUS_INSTRUCTIONS = {
+    "critical_flows": (
+        "Map primary user journeys from entry point to outcome and side effects; identify failure "
+        "points, affected users or data, and impact on core operations."
+    ),
+    "correctness": (
+        "Check invariants across state transitions, validation, boundaries, empty or unexpected "
+        "inputs, and concurrency; give a concrete scenario that violates expected behavior."
+    ),
+    "security": (
+        "Trace authentication, authorization, trust boundaries, secrets, tenant isolation, and "
+        "sensitive-data flows; explain a plausible exposure or exploit path and impact."
+    ),
+    "failure_recovery": (
+        "Inspect exceptions, timeouts, retries, cancellation, partial failure, rollback, and "
+        "restart; verify recovery is bounded and avoids lost or duplicated work."
+    ),
+    "data_integrity": (
+        "Trace state across transactions and storage layers; check atomicity, ordering, duplicate "
+        "updates, stale reads, migrations, and concrete loss or corruption paths."
+    ),
+    "architecture": (
+        "Inspect module boundaries, dependency direction, coupling, duplicated policy, and hidden "
+        "contracts; recommend structural changes only for a concrete risk or cost."
+    ),
+    "performance": (
+        "Trace hot-path algorithm and query cost, I/O, memory, and resource lifetimes; identify a "
+        "plausible workload that exposes a measurable bottleneck."
+    ),
+    "api_compatibility": (
+        "Inspect public contracts, validation, serialization, errors, versioning, and callers; "
+        "identify behavior changes that could break existing consumers."
+    ),
+    "testing_observability": (
+        "Check deterministic tests for important paths and failures, plus whether logs, metrics, "
+        "and traces expose regressions; name specific coverage or diagnosis gaps."
+    ),
+}
+
 FOCUS_PRIORITY_LABELS = {
     1: "low",
     2: "medium",
@@ -34,7 +73,7 @@ FOCUS_PRIORITY_LABELS = {
     5: "critical",
 }
 MAX_CUSTOM_FOCUS_LENGTH = 4000
-MAX_FOCUS_LENGTH = 6000
+MAX_FOCUS_LENGTH = 6200
 
 
 def format_review_focus(criteria: object, custom_text: object) -> str:
@@ -57,7 +96,8 @@ def format_review_focus(criteria: object, custom_text: object) -> str:
             raise ValueError("criterion priorities must be whole numbers from 0 to 5")
         if value:
             selected.append(
-                f"- {label} — priority {value}/5 ({FOCUS_PRIORITY_LABELS[value]})"
+                f"- {label} — priority {value}/5 ({FOCUS_PRIORITY_LABELS[value]}): "
+                f"{REVIEW_FOCUS_INSTRUCTIONS[criterion_id]}"
             )
 
     if not selected and not custom_text.strip():
