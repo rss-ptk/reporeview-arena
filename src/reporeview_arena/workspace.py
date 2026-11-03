@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .modes import normalize_review_modes
 from .prompts import build_prompt
 from .repository import RepositoryReader, snapshot_repo
 from .storage import save_json
@@ -155,15 +156,18 @@ def initialize_workspace(
     focus: str,
     *,
     golden_feature_aspects: object = None,
+    review_modes: object = None,
     review_id: str | None = None,
     created_at: str | None = None,
 ) -> dict[str, Any]:
     """Freeze a clean repository and create its manifest and reusable prompt."""
 
-    golden_feature_direction = format_golden_feature_direction(
+    modes = normalize_review_modes(review_modes)
+    direction = format_golden_feature_direction(
         [] if golden_feature_aspects is None else golden_feature_aspects,
     )
     manifest = snapshot_repo(repo, destination)
+    manifest["review_modes"] = modes
     if review_id is not None:
         manifest["review_id"] = review_id
     if created_at is not None:
@@ -171,8 +175,10 @@ def initialize_workspace(
     save_json(destination / "manifest.json", manifest)
     reader = RepositoryReader(destination / "snapshot")
     prompt = build_prompt(
-        manifest, focus, reader.describe(),
-        golden_feature_direction=golden_feature_direction,
+        manifest,
+        focus if "code_audit" in modes else "",
+        reader.describe(),
+        golden_feature_direction=direction if "golden_feature" in modes else "",
     )
     (destination / "prompt.md").write_text(prompt, encoding="utf-8")
     return manifest

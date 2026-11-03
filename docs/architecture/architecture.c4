@@ -163,7 +163,7 @@ model {
     // ── Client ──
 
     page = client 'Dashboard page' {
-      description 'One HTML page with inline CSS and JavaScript, built as a Python string and served by the dashboard server. English and Brazilian Portuguese, no build step. Provides a five-step repository-to-results workflow, saves the language choice in localStorage, and polls while an audit job is queued or running.'
+      description 'One HTML page with inline CSS and JavaScript, built as a Python string and served by the dashboard server. English and Brazilian Portuguese, no build step. Provides a five-step repository-to-results workflow, lets each review select code audit, Golden Feature or both, displays independent scoreboards, saves the language choice in localStorage, and polls while a provider job is queued or running.'
       technology 'src/reporeview_arena/app.py (PAGE)'
     }
 
@@ -202,21 +202,21 @@ model {
         technology 'src/reporeview_arena/repository.py (snapshot_repo)'
       }
       workspaceBuilder = module 'Workspace builder' {
-        description 'initialize_workspace(): snapshot, manifest.json and prompt.md in one step. Creates CLI workspaces and managed Control Page reviews; turns nine dashboard priorities and custom text into prompt focus, and validates opened workspaces.'
+        description 'initialize_workspace(): snapshot, manifest.json and prompt.md in one step. Persists selected review_modes; creates CLI workspaces with both modes by default; includes audit focus or Golden Feature directions only for selected modes.'
         technology 'src/reporeview_arena/workspace.py'
       }
       promptBuilder = module 'Prompt builder' {
-        description 'Fills one fixed audit template with repository name, commit, languages, exclusion count, focus and file tree. The identical prompt serves every contestant, API or manual.'
+        description 'Builds one mode-specific prompt per review with repository metadata and file tree. When both modes are selected, code audit and Golden Feature instructions and JSON fields are separate in the same prompt.'
         technology 'src/reporeview_arena/prompts.py (build_prompt)'
       }
       reportValidator = module 'Report validator' {
         #boundary
-        description 'Accepts raw JSON or a fenced json block, checks the schema (required finding fields, severity P0 to P3, evidence status, a named golden_feature) and that every cited file is in the snapshot and every cited line exists. Nothing else decides what counts as a report.'
+        description 'Accepts raw JSON or a fenced json block and validates only the report sections selected by the workspace review_modes; checks finding fields and source citations when code audit is active, and requires a named golden_feature when that mode is active.'
         technology 'src/reporeview_arena/reports.py (parse_report, validate_locations)'
       }
       scorer = module 'Scorer' {
-        description 'Pure function over a report and its judgment: confirmed findings score P0 20, P1 10, P2 4, P3 1 once per issue key, capped at 60; false positives cost 5, or 10 if fabricated; human rubric adds improvements /15, gold /20, rigor /5; total clamped to 0 to 100. Unreviewed findings score zero.'
-        technology 'src/reporeview_arena/scoring.py (calculate, leaderboard)'
+        description 'Keeps the existing combined score for CLI compatibility and computes separate Control Page leaderboards: code audit uses confirmed findings (up to 60), improvements /15 and rigor /5 with false-positive penalties; Golden Feature uses its human score /20.'
+        technology 'src/reporeview_arena/scoring.py (calculate, leaderboard, leaderboards)'
       }
       storage = module 'JSON storage' {
         description 'load_json and save_json. save_json writes a temp file beside the target and os.replace()s it, so a crash never leaves a half-written report. workspace_file() would reject paths that escape the workspace but nothing calls it.'
@@ -254,11 +254,11 @@ model {
       technology 'Filesystem · path given to --out and --workspace'
 
       manifest = artifact 'manifest.json' {
-        description 'Repo name, original path, commit SHA, detected languages, every kept file with byte count and SHA-256, and every skipped file with its reason (denylist, size limit, binary, non UTF-8, not a regular local file). Written once by init.'
+        description 'Repo name, original path, commit SHA, detected languages, selected review_modes, every kept file with byte count and SHA-256, and every skipped file with its reason. Legacy manifests without review_modes are treated as both.'
         technology 'workspace/manifest.json'
       }
       prompt = artifact 'prompt.md' {
-        description 'The single audit prompt every contestant receives. Read back by audit_one(), by reporeview prompt and by GET /api/prompt.'
+        description 'The selected review prompt every contestant receives. Includes only active deliverables and is read by audit_one(), reporeview prompt and GET /api/prompt.'
         technology 'workspace/prompt.md'
       }
       snapshot = artifact 'snapshot/' {
@@ -266,7 +266,7 @@ model {
         technology 'workspace/snapshot/'
       }
       reports = artifact 'reports/' {
-        description 'One validated report per contestant: findings, hotpath, improvements, golden_feature and audit_metadata (tokens, calls, tools, retries, elapsed). Every entry point refuses to overwrite an existing id.'
+        description 'One validated report per contestant, with only mode-required sections (findings, hotpath, improvements, golden_feature) and audit_metadata. Every entry point refuses to overwrite an existing id.'
         technology 'workspace/reports/<model-id>.json'
       }
       judgments = artifact 'judgments/' {
@@ -307,7 +307,7 @@ model {
   arena.proc.server -> arena.proc.localData 'load settings, save repository selection, list and resolve managed reviews'
   arena.proc.server -> arena.proc.workspaceBuilder 'POST /api/reviews creates a managed review; /api/workspace/init creates a chosen-path workspace; validate_workspace()'
   arena.proc.server -> arena.proc.reportValidator 'POST /api/import: parse_report() then validate_locations()'
-  arena.proc.server -> arena.proc.scorer 'GET /api/data: leaderboard()'
+  arena.proc.server -> arena.proc.scorer 'GET /api/data and /api/status: combined leaderboard() plus mode-specific leaderboards()'
   arena.proc.server -> arena.proc.storage 'load_json, save_json'
   arena.proc.server -[reads]-> modelsConfig 'lists enabled ids only; model names never reach the browser'
   arena.proc.server -[reads]-> arena.workspace.reports 'GET /api/data'
@@ -620,15 +620,15 @@ views {
 
   dynamic view reviewFlow {
     title 'Adjudicate and rank'
-    description 'Scores are recomputed from reports and judgments on every GET /api/data; nothing is cached.'
+    description 'Combined and mode-specific scores are recomputed from reports and judgments on every GET /api/data or /api/status; nothing is cached.'
 
     reviewer -> arena.page 'sets verdict, severity, issue key and rubric scores'
     arena.page -> arena.proc.server 'POST /api/adjudicate or /api/rubric'
     arena.proc.server -> arena.workspace.judgments 'judgments/<model>.json'
     arena.page -> arena.proc.server 'GET /api/data'
     arena.proc.server -> arena.workspace.reports 'reads reports/*.json and judgments/*.json'
-    arena.proc.server -> arena.proc.scorer 'leaderboard()'
-    arena.proc.server -> arena.page 'reports, judgments, leaderboard'
+    arena.proc.server -> arena.proc.scorer 'leaderboard() and leaderboards()'
+    arena.proc.server -> arena.page 'reports, judgments, combined and mode-specific leaderboards'
 
     autoLayout LeftRight
   }

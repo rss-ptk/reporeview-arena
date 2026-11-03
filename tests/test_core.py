@@ -7,11 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from reporeview_arena.modes import DEFAULT_REVIEW_MODES, normalize_review_modes
 from reporeview_arena.orchestrator import _execute_tool, audit_many, audit_one, model_slug
 from reporeview_arena.prompts import build_prompt
 from reporeview_arena.reports import parse_report, validate_locations
 from reporeview_arena.repository import RepositoryReader, snapshot_repo
-from reporeview_arena.scoring import calculate, leaderboard
+from reporeview_arena.scoring import calculate, leaderboard, leaderboards
 from reporeview_arena.storage import load_json, save_json
 
 
@@ -68,6 +69,9 @@ def test_snapshot_denies_credentials_and_is_frozen(competition):
     assert not (workspace / "snapshot" / "private.pem").exists()
     assert "SECRET" not in (workspace / "prompt.md").read_text()
     assert "find bugs" in (workspace / "prompt.md").read_text()
+    prompt = (workspace / "prompt.md").read_text()
+    assert "## Code audit" in prompt
+    assert "## Golden Feature" in prompt
     assert (workspace / "snapshot" / "main.py").read_text() == "def run():\n    return 123\n"
     (repo / "main.py").write_text("modified")
     assert "123" in (workspace / "snapshot" / "main.py").read_text()
@@ -129,6 +133,67 @@ def test_reports_and_scorecard(competition):
     assert load_json(workspace / "reports" / "alpha.json")["findings"][0]["id"] == "F-1"
 
 
+def test_review_modes_default_to_both_and_reject_empty_or_unknown_modes():
+    assert normalize_review_modes(None) == list(DEFAULT_REVIEW_MODES)
+    assert normalize_review_modes(["golden_feature", "code_audit"]) == [
+        "code_audit", "golden_feature",
+    ]
+    with pytest.raises(ValueError, match="at least one"):
+        normalize_review_modes([])
+    with pytest.raises(ValueError, match="unknown"):
+        normalize_review_modes(["code_audit", "other"])
+
+
+def test_report_schema_requires_only_selected_deliverables():
+    legacy = parse_report(json.dumps(sample_report()), {"main.py"})
+    assert len(legacy["findings"]) == 2
+    assert legacy["golden_feature"]["name"] == "Better counting"
+
+    audit = parse_report(
+        json.dumps({"summary": "Audit", "findings": []}),
+        {"main.py"}, review_modes=["code_audit"],
+    )
+    assert audit["findings"] == []
+    assert "golden_feature" not in audit
+
+    feature = parse_report(
+        json.dumps({"summary": "Proposal", "golden_feature": {"name": "Feature"}}),
+        {"main.py"}, review_modes=["golden_feature"],
+    )
+    assert feature["findings"] == []
+    assert feature["golden_feature"]["name"] == "Feature"
+
+    with pytest.raises(ValueError, match="findings array"):
+        parse_report(
+            json.dumps({"golden_feature": {"name": "Feature"}}),
+            {"main.py"}, review_modes=["code_audit", "golden_feature"],
+        )
+    with pytest.raises(ValueError, match="golden_feature"):
+        parse_report(json.dumps({"findings": []}), {"main.py"})
+
+
+def test_mode_specific_leaderboards_score_audit_and_feature_separately():
+    report = sample_report()
+    judgments = {
+        "alpha": {
+            "findings": {
+                "F-1": {"verdict": "confirmed", "issue_key": "SAME", "severity": "P0"},
+                "F-2": {"verdict": "confirmed", "issue_key": "SAME", "severity": "P1"},
+            },
+            "rubric": {"improvements": 12, "gold": 1, "rigor": 4},
+        },
+        "beta": {"rubric": {"gold": 18}},
+    }
+    boards = leaderboards(
+        {"alpha": report, "beta": report}, judgments,
+        ["code_audit", "golden_feature"],
+    )
+    assert boards["code_audit"][0]["model"] == "alpha"
+    assert boards["code_audit"][0]["total"] == 36
+    assert boards["golden_feature"][0]["model"] == "beta"
+    assert boards["golden_feature"][0]["total"] == 18
+
+
 def test_reject_invalid_ids_and_json():
     with pytest.raises(ValueError):
         model_slug("../malicious")
@@ -164,6 +229,38 @@ async def test_model_audit_toolloop_offline_mock(competition):
     output = load_json(workspace / "reports" / "mock.json")
     assert output["audit_metadata"]["commit"] == load_json(workspace / "manifest.json")["commit"]
     assert output["audit_metadata"]["calls"] == 2
+
+
+@pytest.mark.asyncio
+async def test_model_audit_accepts_golden_feature_only_report(competition):
+    _, workspace, manifest = competition
+    manifest["review_modes"] = ["golden_feature"]
+    save_json(workspace / "manifest.json", manifest)
+    reader = RepositoryReader(workspace / "snapshot")
+    (workspace / "prompt.md").write_text(
+        build_prompt(manifest, "", reader.describe()), encoding="utf-8",
+    )
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        message = SimpleNamespace(
+            content=json.dumps({"summary": "Proposal", "golden_feature": {"name": "Feature"}}),
+            tool_calls=[],
+        )
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=message)],
+            usage=SimpleNamespace(prompt_tokens=10, completion_tokens=5),
+        )
+
+    result = await audit_one(
+        workspace, {"id": "feature", "model": "test/feature"}, completion=completion,
+    )
+    report = load_json(workspace / "reports" / "feature.json")
+    assert len(calls) == 1
+    assert result["findings"] == 0
+    assert report["findings"] == []
+    assert report["golden_feature"]["name"] == "Feature"
 
 
 @pytest.mark.asyncio

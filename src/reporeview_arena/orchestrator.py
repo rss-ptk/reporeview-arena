@@ -273,7 +273,11 @@ async def audit_one(
     try:
         if finish_reason == "length":
             raise ValueError("Output truncated: finish_reason=length")
-        report = parse_report(response_text, reader.allowed)
+        manifest = load_json(workspace / "manifest.json")
+        report = parse_report(
+            response_text, reader.allowed,
+            review_modes=manifest.get("review_modes"),
+        )
         validate_locations(report, workspace / "snapshot")
     except (ValueError, TypeError, KeyError) as exc:
         details = {"error_type": type(exc).__name__, "stage": "report",
@@ -293,7 +297,7 @@ async def audit_one(
         raise AuditFailure(details) from exc
     report["audit_metadata"] = {
         "model_id": model_id, "provider_model": model["model"],
-        "commit": load_json(workspace / "manifest.json")["commit"],
+        "commit": manifest["commit"],
         "elapsed_seconds": round(time.monotonic() - started, 2), **usage,
     }
     save_json(workspace / "reports" / f"{model_id}.json", report)

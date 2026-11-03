@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .modes import normalize_review_modes
+
 REQUIRED_FINDING = (
     "title", "severity", "file", "line", "description", "evidence", "recommendation",
 )
@@ -32,24 +34,42 @@ def _decode(source: str) -> Any:
             raise ValueError("Report must contain valid JSON with the required schema") from exc
 
 
-def parse_report(source: str, known_files: set[str]) -> dict[str, Any]:
+def parse_report(
+    source: str,
+    known_files: set[str],
+    *,
+    review_modes: object = None,
+) -> dict[str, Any]:
     report = _decode(source)
     if not isinstance(report, dict):
         raise ValueError("Report must be a JSON object")
-    if not isinstance(report.get("findings"), list):
+    modes = normalize_review_modes(review_modes)
+    include_audit = "code_audit" in modes
+    include_feature = "golden_feature" in modes
+    if include_audit and not isinstance(report.get("findings"), list):
         raise ValueError("Report must contain a findings array")
-    for attr in ("coverage", "limitations", "test_gaps", "improvements"):
+    report.setdefault("findings", [])
+    if not include_audit:
+        report["findings"] = []
+        report.pop("improvements", None)
+        report.pop("test_gaps", None)
+        report.pop("hotpath", None)
+    for attr in ("coverage", "limitations", *(('test_gaps', 'improvements') if include_audit else ())):
         if attr not in report:
             report[attr] = []
         if not isinstance(report[attr], list):
             raise ValueError(f"{attr} must be an array")
-    for attr in ("summary", "hotpath"):
+    string_fields = ("summary", "hotpath") if include_audit else ("summary",)
+    for attr in string_fields:
         report.setdefault(attr, "")
         if not isinstance(report[attr], str):
             raise ValueError(f"{attr} must be a string")
-    gold = report.get("golden_feature")
-    if not isinstance(gold, dict) or not str(gold.get("name", "")).strip():
-        raise ValueError("Report requires one golden_feature with a name")
+    if include_feature:
+        gold = report.get("golden_feature")
+        if not isinstance(gold, dict) or not str(gold.get("name", "")).strip():
+            raise ValueError("Report requires one golden_feature with a name")
+    else:
+        report.pop("golden_feature", None)
     ids: set[str] = set()
     for i, f in enumerate(report["findings"], 1):
         if not isinstance(f, dict):
@@ -80,7 +100,7 @@ def parse_report(source: str, known_files: set[str]) -> dict[str, Any]:
         f.setdefault("impact", "")
         f.setdefault("invariant", "")
         f.setdefault("regression_test", "")
-    for improvement in report["improvements"]:
+    for improvement in report.get("improvements", []):
         if not isinstance(improvement, dict) or not improvement.get("title"):
             raise ValueError("Each improvement must have a title")
     return report

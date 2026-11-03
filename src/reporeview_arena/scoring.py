@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .modes import normalize_review_modes
+
 WEIGHTS = {"P0": 20, "P1": 10, "P2": 4, "P3": 1}
 
 
@@ -48,7 +50,56 @@ def leaderboard(reports: dict[str, dict], judgments: dict[str, dict]) -> list[di
     rows = [
         {"model": name, **calculate(report, judgments.get(name, {})),
          "findings": len(report["findings"]),
-         "golden_feature": report["golden_feature"]["name"]}
+         "golden_feature": (report.get("golden_feature") or {}).get("name", "")}
         for name, report in reports.items()
     ]
     return sorted(rows, key=lambda x: (-x["total"], -x["confirmed"], x["model"]))
+
+
+def leaderboards(
+    reports: dict[str, dict],
+    judgments: dict[str, dict],
+    review_modes: object = None,
+) -> dict[str, list[dict]]:
+    """Return independent rankings for only the deliverables selected by a review."""
+
+    modes = normalize_review_modes(review_modes)
+    boards: dict[str, list[dict]] = {"code_audit": [], "golden_feature": []}
+    if "code_audit" in modes:
+        audit_rows = []
+        for model, report in reports.items():
+            score = calculate(report, judgments.get(model, {}))
+            total = max(0, min(
+                80, score["bugs"] + score["improvements"] + score["rigor"] - score["penalty"],
+            ))
+            audit_rows.append({
+                "model": model,
+                "bugs": score["bugs"],
+                "improvements": score["improvements"],
+                "rigor": score["rigor"],
+                "penalty": score["penalty"],
+                "total": total,
+                "confirmed": score["confirmed"],
+                "false_positives": score["false_positives"],
+                "pending": score["pending"],
+                "findings": len(report.get("findings", [])),
+            })
+        boards["code_audit"] = sorted(
+            audit_rows, key=lambda row: (-row["total"], -row["confirmed"], row["model"]),
+        )
+    if "golden_feature" in modes:
+        feature_rows = []
+        for model, report in reports.items():
+            rubric = judgments.get(model, {}).get("rubric", {})
+            gold = min(max(int(rubric.get("gold", 0)), 0), 20)
+            feature = report.get("golden_feature") or {}
+            feature_rows.append({
+                "model": model,
+                "gold": gold,
+                "total": gold,
+                "golden_feature": feature.get("name", ""),
+            })
+        boards["golden_feature"] = sorted(
+            feature_rows, key=lambda row: (-row["total"], row["model"]),
+        )
+    return boards

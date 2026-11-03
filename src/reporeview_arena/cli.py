@@ -135,7 +135,8 @@ def execute(args: argparse.Namespace) -> None:
             raise ValueError("A report for this model already exists")
         manifest = load_json(workspace / "manifest.json")
         report = parse_report(args.file.read_text(encoding="utf-8"),
-                              {f["path"] for f in manifest["files"]})
+                              {f["path"] for f in manifest["files"]},
+                              review_modes=manifest.get("review_modes"))
         validate_locations(report, workspace / "snapshot")
         report["audit_metadata"] = {"model_id": model_id, "source": "manual",
                                      "commit": manifest["commit"]}
