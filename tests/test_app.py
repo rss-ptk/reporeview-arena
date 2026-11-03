@@ -16,7 +16,12 @@ import pytest
 
 from reporeview_arena import app
 from reporeview_arena.storage import save_json
-from reporeview_arena.workspace import REVIEW_FOCUS_CRITERIA, format_review_focus
+from reporeview_arena.workspace import (
+    MAX_FOCUS_LENGTH,
+    REVIEW_FOCUS_CRITERIA,
+    REVIEW_FOCUS_INSTRUCTIONS,
+    format_review_focus,
+)
 
 
 def _request(base_url: str, path: str, *, token: str | None = None,
@@ -462,11 +467,26 @@ def test_review_focus_composition_omits_zero_values_and_appends_custom_criteria(
     assert "Critical flows and impact — priority 5/5 (critical)" in focus
     assert "Security and privacy — priority 2/5 (medium)" in focus
     assert "Correctness and edge cases" not in focus
+    assert REVIEW_FOCUS_INSTRUCTIONS["correctness"] not in focus
     assert focus.endswith(
         "Custom criteria (one per line):\n"
         "Check payment retry behavior\n"
         "Trace tenant boundaries"
     )
+
+
+def test_review_focus_includes_detailed_instructions_for_enabled_criteria():
+    assert set(REVIEW_FOCUS_INSTRUCTIONS) == set(REVIEW_FOCUS_CRITERIA)
+    assert all(instruction.strip() for instruction in REVIEW_FOCUS_INSTRUCTIONS.values())
+
+    focus = format_review_focus(
+        {criterion_id: 5 for criterion_id in REVIEW_FOCUS_CRITERIA},
+        "x" * 4000,
+    )
+
+    for instruction in REVIEW_FOCUS_INSTRUCTIONS.values():
+        assert instruction in focus
+    assert len(focus) <= MAX_FOCUS_LENGTH == 6200
 
 
 def test_review_focus_composition_explains_when_nothing_is_selected():
@@ -607,11 +627,39 @@ def test_dashboard_initializes_with_structured_review_focus(dashboard, tmp_path)
     assert "Critical flows and impact — priority 5/5 (critical)" in prompt
     assert "Security and privacy — priority 2/5 (medium)" in prompt
     assert "Correctness and edge cases" not in prompt
+    assert REVIEW_FOCUS_INSTRUCTIONS["correctness"] not in prompt
+    assert "concurrency, input validation, consistency of state" not in prompt
+    assert "security boundaries, latency and correctness" not in prompt
     assert (
         "Custom criteria (one per line):\n"
         "Check payment retry behavior\nTrace tenant boundaries"
     ) in prompt
     assert not (output / "review-focus.json").exists()
+
+
+def test_dashboard_creates_prompt_with_all_criteria_and_max_custom_text(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    output = tmp_path / "new-arena"
+    custom_text = "x" * 4000
+
+    status, _ = _request(
+        base_url, "/api/workspace/init", token=token, origin=base_url,
+        payload={
+            "repo": str(repo),
+            "out": str(output),
+            "review_focus": {
+                "criteria": {criterion_id: 5 for criterion_id in REVIEW_FOCUS_CRITERIA},
+                "custom_text": custom_text,
+            },
+        },
+    )
+
+    assert status == 201
+    prompt = (output / "prompt.md").read_text(encoding="utf-8")
+    assert custom_text in prompt
+    for instruction in REVIEW_FOCUS_INSTRUCTIONS.values():
+        assert instruction in prompt
 
 
 @pytest.mark.parametrize(
