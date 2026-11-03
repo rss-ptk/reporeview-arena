@@ -32,9 +32,11 @@ from .storage import load_json, save_json
 from .workspace import (
     DEFAULT_FOCUS,
     FOCUS_PRIORITY_LABELS,
+    GOLDEN_FEATURE_ASPECTS,
     MAX_CUSTOM_FOCUS_LENGTH,
     MAX_FOCUS_LENGTH,
     REVIEW_FOCUS_CRITERIA,
+    format_golden_feature_direction,
     format_review_focus,
     initialize_workspace,
     validate_workspace,
@@ -66,6 +68,12 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 @media(max-width:800px){.wizard-heading{grid-template-columns:1fr}.wizard-progress{max-width:none}.wizard-nav ol{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:460px){.wizard-nav ol{grid-template-columns:1fr}.wizard-step-button{min-height:58px}.wizard-actions button{min-width:0;flex:1}}
 @media(prefers-reduced-motion:reduce){.wizard-progress span{transition:none}}
+.golden-feature-config{min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px;margin:16px 0 12px}
+.golden-feature-config legend{padding:0 6px;font-weight:700}
+.golden-feature-aspect-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:8px;margin-top:10px}
+.golden-feature-aspect{display:flex;align-items:flex-start;gap:9px;min-width:0;padding:10px;border:1px solid var(--line);border-radius:8px;background:#101a2b;color:var(--ink);cursor:pointer;line-height:1.4}
+.golden-feature-aspect input{flex:0 0 auto;margin:2px 0 0;padding:0;accent-color:var(--accent)}
+.golden-feature-aspect:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 </style></head><body><main>
 <header><div><div class="eyebrow" data-i18n="independentAudits">Independent LLM code audits</div><h1>RepoReview <span class="gold">Arena</span></h1><div id="project" class="meta" data-i18n="loadingCompetition">Loading competition…</div></div><div class="header-actions"><span id="language-label" class="language-label" data-i18n="languageLabel">Language</span><div id="language-toggle" class="language-toggle" role="group" aria-labelledby="language-label"><button type="button" class="language-option" data-language="en" aria-pressed="true">EN</button><button type="button" class="language-option" data-language="pt-BR" aria-pressed="false">PT-BR</button></div><button data-i18n="refresh" onclick="reload()">Refresh</button></div></header>
 <section class="wizard-shell" aria-labelledby="wizard-title">
@@ -102,6 +110,11 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 <p id="review-focus-guidance" class="field-description" data-i18n="reviewFocusDescription">Set each priority from 0 (omit) to 5 (critical). Priorities guide attention; evidence standards stay the same.</p>
 <div id="focus-criteria" class="focus-criteria-grid">__FOCUS_CRITERIA__</div>
 <div class="field custom-focus-field"><div class="field-heading"><label for="focus-custom-text" data-i18n="customCriteria">Custom criteria</label><span class="help-wrap tip-right"><button class="help-tip" type="button" data-i18n-aria-label="helpCustomCriteria" aria-describedby="focus-custom-help">?</button><span class="tooltip-content" id="focus-custom-help" role="tooltip" data-i18n="customCriteriaHelp">Add additional review criteria, one per line. This text is included as written in the generated prompt.</span></span></div><textarea id="focus-custom-text" maxlength="__MAX_CUSTOM_FOCUS_LENGTH__" data-i18n-placeholder="customCriteriaPlaceholder" placeholder="One custom criterion per line" aria-describedby="focus-custom-help review-focus-guidance"></textarea><small class="field-description" data-i18n="customCriteriaDescription">Optional, up to 4,000 characters. Use one criterion per line.</small></div>
+</fieldset>
+<fieldset id="golden-feature-aspects" class="golden-feature-config" aria-describedby="golden-feature-direction-description">
+<legend data-i18n="goldenFeatureDirection">Golden feature direction</legend>
+<p id="golden-feature-direction-description" class="field-description" data-i18n="goldenFeatureDirectionDescription">Select one or more aspects for the single golden feature. The proposal should coherently address every selected aspect; leave all unchecked for no specific direction.</p>
+<div class="golden-feature-aspect-list">__GOLDEN_FEATURE_ASPECTS__</div>
 </fieldset>
 <div id="workspace-message" role="status"></div>
 <div class="wizard-actions"><button type="button" class="wizard-back" data-wizard-back="1" data-i18n="wizardBack">Back</button><button type="button" class="primary wizard-next" data-wizard-next="1" data-i18n="wizardContinue">Continue</button></div>
@@ -283,6 +296,16 @@ const translations = {
     customCriteriaHelp: "Add additional review criteria, one per line. This text is included as written in the generated prompt.",
     customCriteriaPlaceholder: "One custom criterion per line",
     customCriteriaDescription: "Optional, up to 4,000 characters. Use one criterion per line.",
+    goldenFeatureDirection: "Golden feature direction",
+    goldenFeatureDirectionDescription: "Select one or more aspects for the single golden feature. The proposal should coherently address every selected aspect; leave all unchecked for no specific direction.",
+    goldenFeatureAspectArchitecture: "Architecture and maintainability",
+    goldenFeatureAspectThirdPartyIntegrations: "Third-party integrations",
+    goldenFeatureAspectUserFacingFeatures: "User-facing functionality",
+    goldenFeatureAspectDeveloperExperience: "Developer experience and tooling",
+    goldenFeatureAspectSecurityPrivacy: "Security and privacy",
+    goldenFeatureAspectPerformanceScalability: "Performance and scalability",
+    goldenFeatureAspectReliabilityAutomation: "Reliability and automation",
+    goldenFeatureAspectDataReporting: "Data and reporting",
     criterionCriticalFlows: "Critical flows and impact",
     helpCriterionCriticalFlows: "Help for Critical flows and impact",
     criterionCriticalFlowsHelp: "Trace the most consequential user, business, or operational paths and what happens if they fail.",
@@ -523,6 +546,16 @@ const translations = {
     reviewFocusHelp: "Defina quanto cada critério deve orientar a auditoria. O valor 0 omite o critério. Valores maiores aumentam a atenção sem alterar o padrão de evidências.",
     reviewFocusDescription: "Escolha prioridades de 0 (omitir) a 5 (crítica). Essas opções só são usadas ao criar uma nova revisão.",
     priorityAriaValue: "Prioridade {value} de 5: {label}.",
+    goldenFeatureDirection: "Direcionamento da golden feature",
+    goldenFeatureDirectionDescription: "Selecione um ou mais aspectos para a única golden feature. A proposta deve atender de forma coerente a todos os aspectos marcados; deixe tudo desmarcado para não direcionar a proposta.",
+    goldenFeatureAspectArchitecture: "Arquitetura e manutenção",
+    goldenFeatureAspectThirdPartyIntegrations: "Integrações de terceiros",
+    goldenFeatureAspectUserFacingFeatures: "Funcionalidades para usuários",
+    goldenFeatureAspectDeveloperExperience: "Experiência de desenvolvimento e ferramentas",
+    goldenFeatureAspectSecurityPrivacy: "Segurança e privacidade",
+    goldenFeatureAspectPerformanceScalability: "Desempenho e escala",
+    goldenFeatureAspectReliabilityAutomation: "Confiabilidade e automação",
+    goldenFeatureAspectDataReporting: "Dados e relatórios",
     priorityOff: "Omitido",
     priorityLow: "Baixa",
     priorityMedium: "Média",
@@ -1559,6 +1592,9 @@ function resetReviewFocusControls() {
     updatePriorityLabel(slider);
   });
   document.getElementById("focus-custom-text").value = "";
+  document.querySelectorAll("[data-golden-feature-aspect]").forEach(function (aspect) {
+    aspect.checked = false;
+  });
 }
 function prepareNewReview() {
   const selectedPath = document.getElementById("repo-path").value.trim();
@@ -1583,10 +1619,15 @@ async function createReview() {
     document.querySelectorAll(".priority-slider").forEach(function (slider) {
       criteria[slider.dataset.priorityId] = Number(slider.value);
     });
+    const goldenFeatureAspects = Array.from(
+      document.querySelectorAll("[data-golden-feature-aspect]"),
+    ).filter(function (aspect) { return aspect.checked; })
+      .map(function (aspect) { return aspect.value; });
     await api("/api/reviews", {
       review_focus: {
         criteria: criteria,
         custom_text: document.getElementById("focus-custom-text").value,
+        golden_feature_aspects: goldenFeatureAspects,
       },
     });
     updateWorkspaceActions();
@@ -1833,6 +1874,24 @@ def _render_review_focus_criteria() -> str:
     return "\n".join(controls)
 
 
+def _render_golden_feature_aspects() -> str:
+    """Render the fixed golden-feature direction checkboxes."""
+
+    controls = []
+    for aspect_id, label in GOLDEN_FEATURE_ASPECTS.items():
+        suffix = "".join(part.title() for part in aspect_id.split("_"))
+        controls.append(
+            f'<label class="golden-feature-aspect" '
+            f'for="golden-feature-aspect-{aspect_id}">'
+            f'<input id="golden-feature-aspect-{aspect_id}" type="checkbox" '
+            f'name="golden_feature_aspects" data-golden-feature-aspect '
+            f'value="{html.escape(aspect_id)}">'
+            f'<span data-i18n="goldenFeatureAspect{suffix}">{html.escape(label)}</span>'
+            f'</label>'
+        )
+    return "\n".join(controls)
+
+
 def _path_from_input(raw: Any, base: Path, field: str) -> Path:
     if not isinstance(raw, str) or not raw.strip() or len(raw) > 4096:
         raise ValueError(f"{field} must be a nonempty local path")
@@ -2069,6 +2128,7 @@ def create_server(
                 page = (
                     PAGE.replace("__TOKEN__", json.dumps(token))
                     .replace("__FOCUS_CRITERIA__", _render_review_focus_criteria())
+                    .replace("__GOLDEN_FEATURE_ASPECTS__", _render_golden_feature_aspects())
                     .replace("__MAX_CUSTOM_FOCUS_LENGTH__", str(MAX_CUSTOM_FOCUS_LENGTH))
                 )
                 self._reply(200, page.encode(), "text/html; charset=utf-8")
@@ -2160,17 +2220,26 @@ def create_server(
                         raise ValueError("Configure a Git repository before creating a review")
                     repository_path = validate_repository_root(repository_path)
                     review_focus = payload.get("review_focus")
+                    golden_feature_aspects = []
                     if review_focus is None:
                         focus = DEFAULT_FOCUS
                     else:
+                        required_focus_keys = {"criteria", "custom_text"}
+                        allowed_focus_keys = required_focus_keys | {"golden_feature_aspects"}
                         if (not isinstance(review_focus, dict)
-                                or set(review_focus) != {"criteria", "custom_text"}):
+                                or not required_focus_keys.issubset(review_focus)
+                                or set(review_focus) - allowed_focus_keys):
                             raise ValueError(
-                                "review_focus must contain criteria and custom_text"
+                                "review_focus must contain criteria and custom_text; "
+                                "golden_feature_aspects is optional"
                             )
                         focus = format_review_focus(
                             review_focus["criteria"], review_focus["custom_text"],
                         )
+                        golden_feature_aspects = review_focus.get(
+                            "golden_feature_aspects", [],
+                        )
+                        format_golden_feature_direction(golden_feature_aspects)
                         if len(focus) > MAX_FOCUS_LENGTH:
                             raise ValueError(
                                 "combined review focus must be no longer than 6000 characters"
@@ -2180,6 +2249,7 @@ def create_server(
                     workspace_path = review_directory(self.server.data_directory, review_id)
                     initialize_workspace(
                         repository_path, workspace_path, focus,
+                        golden_feature_aspects=golden_feature_aspects,
                         review_id=review_id, created_at=created_at,
                     )
                     workspace_path = validate_workspace(workspace_path)
@@ -2259,25 +2329,37 @@ def create_server(
                 if self.path == "/api/workspace/init":
                     repo_path = _path_from_input(payload.get("repo"), self.server.starting_directory, "repo")
                     output_path = _path_from_input(payload.get("out"), self.server.starting_directory, "out")
+                    golden_feature_aspects = []
                     if "review_focus" in payload:
                         if "focus" in payload:
                             raise ValueError("Use either review_focus or focus, not both")
                         review_focus = payload["review_focus"]
+                        required_focus_keys = {"criteria", "custom_text"}
+                        allowed_focus_keys = required_focus_keys | {"golden_feature_aspects"}
                         if (not isinstance(review_focus, dict)
-                                or set(review_focus) != {"criteria", "custom_text"}):
+                                or not required_focus_keys.issubset(review_focus)
+                                or set(review_focus) - allowed_focus_keys):
                             raise ValueError(
-                                "review_focus must contain criteria and custom_text"
+                                "review_focus must contain criteria and custom_text; "
+                                "golden_feature_aspects is optional"
                             )
                         focus = format_review_focus(
                             review_focus["criteria"], review_focus["custom_text"],
                         )
+                        golden_feature_aspects = review_focus.get(
+                            "golden_feature_aspects", [],
+                        )
+                        format_golden_feature_direction(golden_feature_aspects)
                         if len(focus) > MAX_FOCUS_LENGTH:
                             raise ValueError("combined review focus must be no longer than 6000 characters")
                     else:
                         focus = payload.get("focus", DEFAULT_FOCUS)
                         if not isinstance(focus, str) or len(focus) > 4000:
                             raise ValueError("focus must be text no longer than 4000 characters")
-                    initialize_workspace(repo_path, output_path, focus)
+                    initialize_workspace(
+                        repo_path, output_path, focus,
+                        golden_feature_aspects=golden_feature_aspects,
+                    )
                     workspace_path = validate_workspace(output_path)
                     with self.server.state_lock:
                         self.server.active_workspace = workspace_path

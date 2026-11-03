@@ -65,6 +65,17 @@ REVIEW_FOCUS_INSTRUCTIONS = {
     ),
 }
 
+GOLDEN_FEATURE_ASPECTS = {
+    "architecture": "Architecture and maintainability",
+    "third_party_integrations": "Third-party integrations",
+    "user_facing_features": "User-facing functionality",
+    "developer_experience": "Developer experience and tooling",
+    "security_privacy": "Security and privacy",
+    "performance_scalability": "Performance and scalability",
+    "reliability_automation": "Reliability and automation",
+    "data_reporting": "Data and reporting",
+}
+
 FOCUS_PRIORITY_LABELS = {
     1: "low",
     2: "medium",
@@ -115,16 +126,43 @@ def format_review_focus(criteria: object, custom_text: object) -> str:
     return focus
 
 
+def format_golden_feature_direction(aspects: object) -> str:
+    """Validate and render the optional golden-feature aspect selection."""
+
+    if not isinstance(aspects, list) or any(not isinstance(value, str) for value in aspects):
+        raise ValueError("golden_feature_aspects must be an array of aspect IDs")
+    if len(set(aspects)) != len(aspects):
+        raise ValueError("golden_feature_aspects must not contain duplicates")
+    unknown = set(aspects) - GOLDEN_FEATURE_ASPECTS.keys()
+    if unknown:
+        raise ValueError("golden_feature_aspects contains an unknown aspect")
+    if not aspects:
+        return ""
+
+    selected = ", ".join(GOLDEN_FEATURE_ASPECTS[aspect] for aspect in aspects)
+    return (
+        "\n\n## Golden feature direction\n"
+        "The single golden feature must coherently address every selected aspect: "
+        f"{selected}. Do not make unsupported scope or value claims. If no credible, "
+        "evidence-supported feature can address all selected aspects, state the mismatch "
+        "in the opportunity and feasibility fields."
+    )
+
+
 def initialize_workspace(
     repo: Path,
     destination: Path,
     focus: str,
     *,
+    golden_feature_aspects: object = None,
     review_id: str | None = None,
     created_at: str | None = None,
 ) -> dict[str, Any]:
     """Freeze a clean repository and create its manifest and reusable prompt."""
 
+    golden_feature_direction = format_golden_feature_direction(
+        [] if golden_feature_aspects is None else golden_feature_aspects,
+    )
     manifest = snapshot_repo(repo, destination)
     if review_id is not None:
         manifest["review_id"] = review_id
@@ -132,7 +170,10 @@ def initialize_workspace(
         manifest["created_at"] = created_at
     save_json(destination / "manifest.json", manifest)
     reader = RepositoryReader(destination / "snapshot")
-    prompt = build_prompt(manifest, focus, reader.describe())
+    prompt = build_prompt(
+        manifest, focus, reader.describe(),
+        golden_feature_direction=golden_feature_direction,
+    )
     (destination / "prompt.md").write_text(prompt, encoding="utf-8")
     return manifest
 

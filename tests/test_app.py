@@ -17,9 +17,11 @@ import pytest
 from reporeview_arena import app
 from reporeview_arena.storage import save_json
 from reporeview_arena.workspace import (
+    GOLDEN_FEATURE_ASPECTS,
     MAX_FOCUS_LENGTH,
     REVIEW_FOCUS_CRITERIA,
     REVIEW_FOCUS_INSTRUCTIONS,
+    format_golden_feature_direction,
     format_review_focus,
 )
 
@@ -136,6 +138,14 @@ def test_repository_configuration_has_visible_help_and_review_history(dashboard)
     assert 'id="workspace-path"' not in page
     assert 'id="out-path"' not in page
     assert 'id="focus-custom-text"' in page
+    assert 'id="golden-feature-aspects"' in page
+    assert "Third-party integrations" in page
+    assert "Integrações de terceiros" in page
+    assert "The proposal should coherently address every selected aspect" in page
+    assert "A proposta deve atender de forma coerente a todos os aspectos marcados" in page
+    for aspect_id in GOLDEN_FEATURE_ASPECTS:
+        assert f'id="golden-feature-aspect-{aspect_id}"' in page
+        assert f'data-golden-feature-aspect value="{aspect_id}"' in page
     assert page.count('type="range"') == 9
     assert page.count('role="tooltip"') == 12
     assert 'maxlength="4000"' in page
@@ -241,7 +251,9 @@ def test_managed_reviews_are_unique_listed_by_repository_and_opened_by_id(dashbo
     first_path = server.data_directory / "reviews" / first_id
     assert first_path.is_dir()
     assert (first_path / "manifest.json").is_file()
-    assert "Check retry behavior" in (first_path / "prompt.md").read_text(encoding="utf-8")
+    first_prompt = (first_path / "prompt.md").read_text(encoding="utf-8")
+    assert "Check retry behavior" in first_prompt
+    assert "## Golden feature direction" not in first_prompt
 
     status, second = _request(
         base_url, "/api/reviews", token=token, origin=base_url,
@@ -283,6 +295,40 @@ def test_managed_reviews_are_unique_listed_by_repository_and_opened_by_id(dashbo
     )
     assert status == 400
     assert error["error"]
+
+
+def test_managed_review_prompt_separates_golden_feature_aspects_from_review_priorities(
+    dashboard, tmp_path,
+):
+    server, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    _request(
+        base_url, "/api/settings/repository", token=token, origin=base_url,
+        payload={"path": str(repo)},
+    )
+
+    status, created = _request(
+        base_url, "/api/reviews", token=token, origin=base_url,
+        payload={"review_focus": {
+            "criteria": {"security": 5}, "custom_text": "",
+            "golden_feature_aspects": [
+                "architecture", "third_party_integrations",
+            ],
+        }},
+    )
+
+    assert status == 201
+    prompt = (
+        server.data_directory / "reviews" / created["review_id"] / "prompt.md"
+    ).read_text(encoding="utf-8")
+    priorities, direction = prompt.split("## Golden feature direction\n", 1)
+    direction = direction.split("\n\n## Repository map", 1)[0]
+    assert "Security and privacy — priority 5/5 (critical)" in priorities
+    assert "Architecture and maintainability" not in priorities
+    assert "Third-party integrations" not in priorities
+    assert "Architecture and maintainability" in direction
+    assert "Third-party integrations" in direction
+    assert "exactly one" in prompt.lower()
 
 
 def test_reports_are_scoped_to_each_review_and_same_model_can_run_again(
@@ -510,6 +556,29 @@ def test_review_focus_preserves_custom_text_as_entered():
     assert focus.endswith("Custom criteria (one per line):\n" + custom_text)
 
 
+def test_golden_feature_direction_is_optional_and_requires_all_selected_aspects():
+    assert format_golden_feature_direction([]) == ""
+
+    direction = format_golden_feature_direction(
+        ["architecture", "third_party_integrations"],
+    )
+
+    assert direction.startswith("\n\n## Golden feature direction\n")
+    assert "Architecture and maintainability" in direction
+    assert "Third-party integrations" in direction
+    assert "every selected aspect" in direction
+    assert "state the mismatch" in direction
+
+
+@pytest.mark.parametrize(
+    "aspects",
+    [None, "architecture", ["unknown"], ["architecture", "architecture"], [None]],
+)
+def test_golden_feature_direction_rejects_invalid_aspects(aspects):
+    with pytest.raises(ValueError):
+        format_golden_feature_direction(aspects)
+
+
 @pytest.mark.parametrize(
     ("criteria", "custom_text"),
     [
@@ -618,6 +687,7 @@ def test_dashboard_initializes_with_structured_review_focus(dashboard, tmp_path)
             "review_focus": {
                 "criteria": {"critical_flows": 5, "correctness": 0, "security": 2},
                 "custom_text": "Check payment retry behavior\nTrace tenant boundaries",
+                "golden_feature_aspects": ["user_facing_features"],
             },
         },
     )
@@ -634,6 +704,11 @@ def test_dashboard_initializes_with_structured_review_focus(dashboard, tmp_path)
         "Custom criteria (one per line):\n"
         "Check payment retry behavior\nTrace tenant boundaries"
     ) in prompt
+    direction = prompt.split("## Golden feature direction\n", 1)[1].split(
+        "\n\n## Repository map", 1
+    )[0]
+    assert "User-facing functionality" in direction
+    assert "every selected aspect" in direction
     assert not (output / "review-focus.json").exists()
 
 
@@ -671,6 +746,13 @@ def test_dashboard_creates_prompt_with_all_criteria_and_max_custom_text(dashboar
         {"criteria": [], "custom_text": ""},
         {"criteria": {}, "custom_text": "x" * 4001},
         {"criteria": {}, "custom_text": "", "unexpected": "value"},
+        {"criteria": {}, "custom_text": "", "golden_feature_aspects": ["unknown"]},
+        {"criteria": {}, "custom_text": "", "golden_feature_aspects": "architecture"},
+        {"criteria": {}, "custom_text": "", "golden_feature_aspects": None},
+        {
+            "criteria": {}, "custom_text": "",
+            "golden_feature_aspects": ["architecture", "architecture"],
+        },
     ],
 )
 def test_dashboard_rejects_invalid_structured_review_focus(dashboard, tmp_path, review_focus):
@@ -1157,10 +1239,14 @@ const sliders = [
   {value: "0", defaultValue: "3", dataset: {priorityId: "architecture"}},
 ];
 const customText = {value: "old criteria"};
+const goldenAspects = [
+  {checked: true, value: "architecture"},
+  {checked: false, value: "user_facing_features"},
+];
 const repositoryInput = {value: "C:/repo"};
 const elements = {"focus-custom-text": customText, "repo-path": repositoryInput};
 globalThis.document = {
-  querySelectorAll: () => sliders,
+  querySelectorAll: (selector) => selector === "[data-golden-feature-aspect]" ? goldenAspects : sliders,
   getElementById: (id) => elements[id],
 };
 function updatePriorityLabel(slider) { slider.label = slider.value; }
@@ -1179,9 +1265,14 @@ function attempt() {
   sliders[0].value = "1";
   sliders[1].value = "0";
   customText.value = "old criteria";
+  goldenAspects[0].checked = true;
+  goldenAspects[1].checked = true;
   visitedStep = null;
   prepareNewReview();
-  return {values: sliders.map((slider) => slider.value), custom: customText.value, step: visitedStep};
+  return {
+    values: sliders.map((slider) => slider.value), custom: customText.value,
+    aspects: goldenAspects.map((aspect) => aspect.checked), step: visitedStep,
+  };
 }
 const ready = attempt();
 dashboardStatus.job = {status: "running"};
@@ -1197,9 +1288,69 @@ console.log(JSON.stringify({ready, running, unavailable}));
     )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {
-        "ready": {"values": ["5", "3"], "custom": "", "step": 1},
-        "running": {"values": ["1", "0"], "custom": "old criteria", "step": None},
-        "unavailable": {"values": ["1", "0"], "custom": "old criteria", "step": None},
+        "ready": {
+            "values": ["5", "3"], "custom": "", "aspects": [False, False], "step": 1,
+        },
+        "running": {
+            "values": ["1", "0"], "custom": "old criteria", "aspects": [True, True],
+            "step": None,
+        },
+        "unavailable": {
+            "values": ["1", "0"], "custom": "old criteria", "aspects": [True, True],
+            "step": None,
+        },
+    }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_create_review_sends_selected_golden_feature_aspects():
+    function = re.search(r"async function createReview\(\) \{.*?\n\}", app.PAGE, re.S)
+    assert function, "createReview function is missing"
+    script = function.group(0) + """
+let reviewCreationInProgress = false;
+const sliders = [{value: "5", dataset: {priorityId: "security"}}];
+const aspects = [
+  {checked: true, value: "architecture"},
+  {checked: false, value: "user_facing_features"},
+  {checked: true, value: "third_party_integrations"},
+];
+const button = {
+  disabled: false,
+  setAttribute() {},
+  removeAttribute() {},
+  textContent: "Create review",
+};
+const elements = {
+  "create-review-button": button,
+  "focus-custom-text": {value: "Check retries"},
+};
+globalThis.document = {
+  getElementById: (id) => elements[id],
+  querySelectorAll: (selector) => selector === ".priority-slider" ? sliders : aspects,
+};
+let request;
+async function api(path, body) { request = {path, body}; }
+function t(key) { return key; }
+function setLocalizedMessage() {}
+function updateWorkspaceActions() {}
+function setRepositoryError() {}
+async function reload() {}
+createReview().then(() => console.log(JSON.stringify(request)));
+"""
+    result = subprocess.run(
+        [NODE, "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "path": "/api/reviews",
+        "body": {
+            "review_focus": {
+                "criteria": {"security": 5},
+                "custom_text": "Check retries",
+                "golden_feature_aspects": ["architecture", "third_party_integrations"],
+            },
+        },
     }
 
 

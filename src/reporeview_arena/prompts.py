@@ -44,7 +44,7 @@ analysis with no executed reproduction must NOT claim confirmed status.
 
 Also propose up to five high-leverage general improvements and EXACTLY ONE
 'golden feature' with concrete value mechanism, feasibility, missing capability
-check and a falsifiable validation experiment. Never invent projected numbers.
+check and a falsifiable validation experiment. Never invent projected numbers.{golden_feature_direction}
 
 ## Repository map
 {tree}
@@ -83,7 +83,13 @@ as established fact. Do not attribute tests or runs you did not execute.
 """
 
 
-def build_prompt(manifest: dict[str, Any], focus: str, tree: str) -> str:
+def build_prompt(
+    manifest: dict[str, Any],
+    focus: str,
+    tree: str,
+    *,
+    golden_feature_direction: str = "",
+) -> str:
     return AUDIT_TEMPLATE.format(
         name=manifest["repo_name"],
         commit=manifest["commit"],
@@ -92,4 +98,5 @@ def build_prompt(manifest: dict[str, Any], focus: str, tree: str) -> str:
         skipped=len(manifest["skipped"]),
         focus=focus,
         tree=tree,
+        golden_feature_direction=golden_feature_direction,
     )
