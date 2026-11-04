@@ -124,6 +124,7 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 <p id="golden-feature-direction-description" class="field-description" data-i18n="goldenFeatureDirectionDescription">Select one or more aspects for the single golden feature. The proposal should coherently address every selected aspect; leave all unchecked for no specific direction.</p>
 <div class="golden-feature-aspect-list">__GOLDEN_FEATURE_ASPECTS__</div>
 </fieldset>
+<div id="review-config-message" role="status"></div>
 <div id="workspace-message" role="status"></div>
 <div class="wizard-actions"><button type="button" class="wizard-back" data-wizard-back="1" data-i18n="wizardBack">Back</button><button type="button" class="primary wizard-next" data-wizard-next="1" data-i18n="wizardContinue">Continue</button></div>
 </section>
@@ -209,12 +210,14 @@ const translations = {
     wizardProgressLabel: "Step {current} of 5",
     wizardRepoGate: "Save a valid Git repository to unlock this step.",
     wizardReviewGate: "Create or open a valid review to unlock this step.",
+    wizardUnsavedReviewSettings: "Create the new review or open a saved review before continuing.",
     wizardReportsGate: "Add a valid report and finish any audit for this review to unlock this step.",
     wizardAuditRunning: "This review's audit is still running.",
     wizardFindingsGate: "Resolve every finding to unlock the scorecard.",
     wizardRubricGate: "Save rubric scores for every report to unlock the scorecard.",
     wizardRefreshFailed: "Workflow state could not be refreshed. Refresh the page to continue.",
     wizardReviewIntro: "Choose a saved review or create one and set its review priorities.",
+    reviewSettingsUnsaved: "These settings are for a new review. Create it or open a saved review before continuing; the active review still uses its saved prompt.",
     wizardReportsIntro: "Run selected providers or import a report produced elsewhere. Provider audits require fresh consent.",
     wizardAdjudicationIntro: "Review findings and score only the deliverables selected for this review.",
     wizardResultsIntro: "All current reports have been reviewed. View and export the scorecard.",
@@ -481,12 +484,14 @@ const translations = {
     wizardProgressLabel: "Etapa {current} de 5",
     wizardRepoGate: "Salve um reposit\u00f3rio Git v\u00e1lido para liberar esta etapa.",
     wizardReviewGate: "Crie ou abra uma revis\u00e3o v\u00e1lida para liberar esta etapa.",
+    wizardUnsavedReviewSettings: "Crie a nova revis\u00e3o ou abra uma revis\u00e3o salva antes de continuar.",
     wizardReportsGate: "Adicione um relat\u00f3rio v\u00e1lido e aguarde a auditoria desta revis\u00e3o para liberar esta etapa.",
     wizardAuditRunning: "A auditoria desta revis\u00e3o ainda est\u00e1 em andamento.",
     wizardFindingsGate: "Defina um veredito para cada achado para liberar o placar.",
     wizardRubricGate: "Salve as notas da rubrica de cada relat\u00f3rio para liberar o placar.",
     wizardRefreshFailed: "N\u00e3o foi poss\u00edvel atualizar o fluxo. Atualize a p\u00e1gina para continuar.",
     wizardReviewIntro: "Escolha uma revis\u00e3o salva ou crie uma e defina suas prioridades.",
+    reviewSettingsUnsaved: "Estas configura\u00e7\u00f5es s\u00e3o de uma nova revis\u00e3o. Crie-a ou abra uma revis\u00e3o salva antes de continuar; a revis\u00e3o ativa ainda usa o prompt salvo nela.",
     wizardReportsIntro: "Execute auditorias nos provedores selecionados ou importe um relat\u00f3rio. Cada auditoria exige novo consentimento.",
     wizardAdjudicationIntro: "Revise os achados e dê notas apenas aos resultados selecionados nesta revisão.",
     wizardResultsIntro: "Todos os relat\u00f3rios atuais foram revisados. Consulte e exporte o placar.",
@@ -730,6 +735,9 @@ const translations = {
 
 let language = "en";
 let reviewCreationInProgress = false;
+let reviewSetupBaseline = null;
+let reviewSetupPending = false;
+let reviewSetupBaselineResetRequested = false;
 
 function t(key, values) {
   const dictionary = translations[language] || translations.en;
@@ -1036,6 +1044,30 @@ function selectedReviewModes() {
     .filter(function (input) { return input.checked; })
     .map(function (input) { return input.value; });
 }
+// BEGIN review-setup
+function reviewSetupSignature() {
+  return JSON.stringify({
+    modes: selectedReviewModes(),
+    criteria: Array.from(document.querySelectorAll(".priority-slider"))
+      .map(function (slider) {
+        return [slider.dataset.priorityId, Number(slider.value)];
+      }),
+    customText: document.getElementById("focus-custom-text").value,
+    goldenFeatureAspects: Array.from(
+      document.querySelectorAll("[data-golden-feature-aspect]"),
+    ).filter(function (aspect) { return aspect.checked; })
+      .map(function (aspect) { return aspect.value; }),
+  });
+}
+function reviewSetupHasUnsavedChanges() {
+  return reviewSetupPending ||
+    (reviewSetupBaseline !== null && reviewSetupSignature() !== reviewSetupBaseline);
+}
+function rememberReviewSetupBaseline() {
+  reviewSetupBaseline = reviewSetupSignature();
+  reviewSetupPending = false;
+}
+// END review-setup
 function setReviewModeSelection(modes) {
   const selected = new Set(modes || ["code_audit", "golden_feature"]);
   document.querySelectorAll("[data-review-mode]").forEach(function (input) {
@@ -1067,6 +1099,12 @@ function updateWorkspaceActions() {
     reviewCreationInProgress || !dashboardStatus.repository_available ||
     selectedPath !== savedPath || !dashboardStatus.workspace ||
     jobIsActive(dashboardStatus.job);
+  const reviewConfigMessage = document.getElementById("review-config-message");
+  if (!reviewCreationInProgress && reviewSetupHasUnsavedChanges()) {
+    setLocalizedMessage("review-config-message", "reviewSettingsUnsaved");
+  } else if (reviewConfigMessage.dataset.translationKey === "reviewSettingsUnsaved") {
+    setMessage("review-config-message", "");
+  }
   renderWizard();
 }
 
@@ -1110,7 +1148,8 @@ async function reload() {
   try {
     const previousWorkspace = dashboardStatus.workspace;
     dashboardStatus = await api("/api/status");
-    if (previousWorkspace !== dashboardStatus.workspace) {
+    const workspaceChanged = previousWorkspace !== dashboardStatus.workspace;
+    if (workspaceChanged) {
       const prompt = document.getElementById("prompt-text");
       prompt.textContent = "";
       prompt.hidden = true;
@@ -1149,7 +1188,7 @@ async function reload() {
       if (previousModel && state.reports[previousModel]) models.value = previousModel;
       renderBoard();
       showReport();
-      if (previousWorkspace !== dashboardStatus.workspace) contestantSelection = null;
+      if (workspaceChanged) contestantSelection = null;
       renderModels();
     } else {
       state = {
@@ -1168,6 +1207,11 @@ async function reload() {
       showReport();
       setMessage("models-message", "");
       setMessage("contestants-count", "");
+    }
+    if (workspaceChanged || reviewSetupBaselineResetRequested ||
+        reviewSetupBaseline === null) {
+      rememberReviewSetupBaseline();
+      reviewSetupBaselineResetRequested = false;
     }
     renderJob(dashboardStatus.job);
     wizardDataError = false;
@@ -1200,7 +1244,7 @@ function reconcileContestantSelection(previous, models, reports) {
 }
 // END contestant-selection
 // BEGIN wizard-state (pure helper, unit-tested under Node without a DOM)
-function deriveWizardState(status, data, repositoryInput) {
+function deriveWizardState(status, data, repositoryInput, reviewSetupUnsaved = false) {
   const repositoryReady = status.repository_available === true &&
     String(repositoryInput || "").trim() === String(status.repository_path || "");
   const workspaceReady = repositoryReady && !!status.workspace && !!data.manifest;
@@ -1243,7 +1287,8 @@ function deriveWizardState(status, data, repositoryInput) {
     reportIds.every(reportFindingsReviewed));
   const rubricsReady = reportsReady && reportIds.every(reportRubricSaved);
   const adjudicationReady = findingsReady && rubricsReady;
-  const complete = [repositoryReady, workspaceReady, reportsReady, adjudicationReady];
+  const reviewStepReady = workspaceReady && !reviewSetupUnsaved;
+  const complete = [repositoryReady, reviewStepReady, reportsReady, adjudicationReady];
   const unlocked = [true, false, false, false, false];
   for (let index = 1; index < unlocked.length; index += 1) {
     unlocked[index] = unlocked[index - 1] && complete[index - 1];
@@ -1255,6 +1300,7 @@ function deriveWizardState(status, data, repositoryInput) {
     findingsReady: findingsReady,
     rubricsReady: rubricsReady,
     auditRunning: auditRunning,
+    reviewSetupUnsaved: reviewSetupUnsaved,
     reviewModes: reviewModes,
     auditSelected: auditSelected,
     featureSelected: featureSelected,
@@ -1269,7 +1315,8 @@ function wizardGateKeyFor(step, progress) {
   for (let gate = 0; gate < step; gate += 1) {
     if (progress.complete[gate]) continue;
     if (gate === 0) return "wizardRepoGate";
-    if (gate === 1) return "wizardReviewGate";
+    if (gate === 1) return progress.reviewSetupUnsaved
+      ? "wizardUnsavedReviewSettings" : "wizardReviewGate";
     if (gate === 2) return progress.auditRunning ? "wizardAuditRunning" : "wizardReportsGate";
     return progress.findingsReady ? "wizardRubricGate" : "wizardFindingsGate";
   }
@@ -1293,7 +1340,9 @@ function renderWizard() {
     return;
   }
   const repositoryInput = document.getElementById("repo-path").value;
-  const progress = deriveWizardState(dashboardStatus, state, repositoryInput);
+  const progress = deriveWizardState(
+    dashboardStatus, state, repositoryInput, reviewSetupHasUnsavedChanges(),
+  );
   wizardProgressState = progress;
   if (wizardCurrentStep === null) {
     wizardCurrentStep = progress.complete.findIndex(function (complete) { return !complete; });
@@ -1701,6 +1750,8 @@ async function openReview() {
   try {
     const reviewId = document.getElementById("review-history").value;
     await api("/api/reviews/open", { id: reviewId });
+    reviewSetupBaselineResetRequested = true;
+    resetReviewFocusControls();
     setLocalizedMessage("workspace-message", "reviewOpened");
     await reload();
   } catch (error) {
@@ -1727,6 +1778,7 @@ function prepareNewReview() {
   if (reviewCreationInProgress || jobIsActive(dashboardStatus.job) ||
       !dashboardStatus.repository_available || !dashboardStatus.workspace ||
       selectedPath !== (dashboardStatus.repository_path || "")) return;
+  reviewSetupPending = true;
   resetReviewFocusControls();
   setMessage("workspace-message", "");
   goToWizardStep(1);
@@ -1879,7 +1931,12 @@ function downloadPrompt() {
 document.querySelectorAll(".priority-slider").forEach(function (slider) {
   slider.addEventListener("input", function () {
     updatePriorityLabel(slider);
+    updateWorkspaceActions();
   });
+});
+document.getElementById("focus-custom-text").addEventListener("input", updateWorkspaceActions);
+document.querySelectorAll("[data-golden-feature-aspect]").forEach(function (aspect) {
+  aspect.addEventListener("change", updateWorkspaceActions);
 });
 const languageToggle = document.getElementById("language-toggle");
 document.getElementById("folder-dialog").addEventListener("close", function () {

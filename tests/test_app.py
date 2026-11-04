@@ -1053,9 +1053,10 @@ NEW_TRANSLATION_KEYS = {
     "wizardStepReports", "wizardStepAdjudication", "wizardStepResults",
     "wizardBack", "wizardContinue", "wizardDone", "wizardCurrent", "wizardReady",
     "wizardLocked", "wizardProgressLabel",
-    "wizardRepoGate", "wizardReviewGate", "wizardReportsGate", "wizardAuditRunning",
+    "wizardRepoGate", "wizardReviewGate", "wizardUnsavedReviewSettings",
+    "wizardReportsGate", "wizardAuditRunning",
     "wizardFindingsGate", "wizardRubricGate", "wizardRefreshFailed",
-    "wizardReviewIntro", "wizardReportsIntro", "wizardAdjudicationIntro",
+    "wizardReviewIntro", "reviewSettingsUnsaved", "wizardReportsIntro", "wizardAdjudicationIntro",
     "wizardResultsIntro", "partialScoreboard", "newReview", "newReviewHelp", "reviewShort",
     "reviewModes", "reviewModesDescription", "codeAuditMode", "goldenFeatureMode",
     "selectReviewMode", "codeAuditScoreboard", "goldenFeatureScoreboard", "auditScore",
@@ -1067,6 +1068,9 @@ SELECTION_BLOCK = re.compile(
 )
 WIZARD_BLOCK = re.compile(
     r"// BEGIN wizard-state[^\n]*\n(.*?)// END wizard-state", re.S,
+)
+REVIEW_SETUP_BLOCK = re.compile(
+    r"// BEGIN review-setup[^\n]*\n(.*?)// END review-setup", re.S,
 )
 REVIEW_MODES_BLOCK = re.compile(
     r"// BEGIN review-modes[^\n]*\n(.*?)// END review-modes", re.S,
@@ -1280,6 +1284,90 @@ def test_wizard_progress_is_derived_from_current_review_state(
     assert progress["complete"] == complete
     assert progress["unlocked"] == unlocked
     assert progress["maxUnlocked"] == max_unlocked
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_wizard_keeps_collect_reports_locked_for_unsaved_new_review_settings():
+    block = WIZARD_BLOCK.search(app.PAGE)
+    assert block, "wizard-state block is missing"
+    script = block.group(1) + """
+const progress = deriveWizardState(
+  {repository_available:true, repository_path:'C:/repo', workspace:'C:/review'},
+  {manifest:{}, reports:{}, judgments:{}}, 'C:/repo', true,
+);
+console.log(JSON.stringify(progress));
+"""
+    result = subprocess.run(
+        [NODE, "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    progress = json.loads(result.stdout)
+    assert progress["reviewSetupUnsaved"] is True
+    assert progress["complete"] == [True, False, False, False]
+    assert progress["unlocked"] == [True, True, False, False, False]
+    assert progress["maxUnlocked"] == 1
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_review_setup_marks_changed_inputs_unsaved_until_the_baseline_is_reset():
+    block = REVIEW_SETUP_BLOCK.search(app.PAGE)
+    assert block, "review-setup block is missing"
+    script = """
+const sliders = [{dataset:{priorityId:"security"}, value:"5"}];
+const customText = {value:""};
+const aspects = [{checked:false, value:"architecture"}];
+const modes = [
+  {checked:true, value:"code_audit"},
+  {checked:true, value:"golden_feature"},
+];
+globalThis.document = {
+  querySelectorAll: (selector) => selector === ".priority-slider" ? sliders
+    : selector === "[data-golden-feature-aspect]" ? aspects : modes,
+  getElementById: () => customText,
+};
+function selectedReviewModes() {
+  return modes.filter((mode) => mode.checked).map((mode) => mode.value);
+}
+let reviewSetupBaseline = null;
+let reviewSetupPending = false;
+""" + block.group(1) + """
+reviewSetupBaseline = reviewSetupSignature();
+const initial = reviewSetupHasUnsavedChanges();
+sliders[0].value = "1";
+const sliderChanged = reviewSetupHasUnsavedChanges();
+sliders[0].value = "5";
+customText.value = "Check retries";
+const customTextChanged = reviewSetupHasUnsavedChanges();
+customText.value = "";
+aspects[0].checked = true;
+const aspectChanged = reviewSetupHasUnsavedChanges();
+aspects[0].checked = false;
+modes[0].checked = false;
+const modesChanged = reviewSetupHasUnsavedChanges();
+reviewSetupPending = true;
+const newReviewPending = reviewSetupHasUnsavedChanges();
+rememberReviewSetupBaseline();
+const rebased = reviewSetupHasUnsavedChanges();
+console.log(JSON.stringify({
+  initial, sliderChanged, customTextChanged, aspectChanged, modesChanged,
+  newReviewPending, rebased,
+}));
+"""
+    result = subprocess.run(
+        [NODE, "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "initial": False,
+        "sliderChanged": True,
+        "customTextChanged": True,
+        "aspectChanged": True,
+        "modesChanged": True,
+        "newReviewPending": True,
+        "rebased": False,
+    }
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
