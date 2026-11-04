@@ -343,7 +343,7 @@ async def test_openrouter_session_id_is_not_sent_to_unverified_endpoint(competit
 
 
 @pytest.mark.asyncio
-async def test_model_is_told_remaining_tool_rounds_and_final_report_budget(competition):
+async def test_tool_round_budget_keeps_request_prefix_stable(competition):
     _, workspace, _ = competition
     calls = []
 
@@ -360,14 +360,22 @@ async def test_model_is_told_remaining_tool_rounds_and_final_report_budget(compe
     await audit_one(workspace, {"id": "mock", "model": "test/mock"},
                     max_steps=2, completion=completion)
 
-    for call, remaining in zip(calls, (2, 1, 0), strict=True):
-        system = call["messages"][0]["content"]
-        assert f"{remaining} of 2 tool rounds remaining" in system
-        assert "6 tool calls" in system
+    # System message is identical on every call (prompt cache + sticky routing key).
+    systems = {call["messages"][0]["content"] for call in calls}
+    assert len(systems) == 1
+    system = systems.pop()
+    assert "budget of 2 tool rounds" in system and "6 tool calls" in system
+    assert "remaining" not in system
+    # History is append-only: each request is an exact prefix of the next.
+    for before, after in zip(calls, calls[1:]):
+        assert after["messages"][:len(before["messages"])] == before["messages"]
+    # The counter rides on the last tool result of each round.
+    assert calls[1]["messages"][-1]["role"] == "tool"
+    assert calls[1]["messages"][-1]["content"].endswith("[arena] 1 of 2 tool rounds remaining.")
+    assert calls[2]["messages"][-2]["content"].endswith("[arena] 0 of 2 tool rounds remaining.")
     assert "tools" in calls[0] and "tools" in calls[1]
     assert "tools" not in calls[2]
     assert "No more tools" in calls[2]["messages"][-1]["content"]
-    assert calls[1]["messages"][-1]["role"] == "tool"
 
 
 @pytest.mark.asyncio
@@ -427,10 +435,10 @@ async def test_model_audit_recovers_from_invalid_tool_arguments(competition, arg
     result = await audit_one(workspace, {"id": "mock", "model": "test/mock"}, completion=completion)
 
     assert result["findings"] == 2
-    assert calls[1]["messages"][-1] == {
-        "role": "tool", "tool_call_id": "invalid",
-        "content": f"ERROR: {error_type}: invalid tool arguments",
-    }
+    tool_reply = calls[1]["messages"][-1]
+    assert (tool_reply["role"], tool_reply["tool_call_id"]) == ("tool", "invalid")
+    assert tool_reply["content"] == (f"ERROR: {error_type}: invalid tool arguments"
+                                     "\n\n[arena] 34 of 35 tool rounds remaining.")
 
 
 @pytest.mark.asyncio
