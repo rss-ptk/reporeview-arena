@@ -110,6 +110,17 @@ reporeview prompt --workspace ./arenas/project-2026 > shared-prompt.md
 
 Open the same frozen repository content for each model, use the same prompt, and ask for the final structured JSON deliverable. When manual reviewers have wider tools (terminals, patches, internet), the methodology is *not strictly equivalent* to the Arena's API mode. Disclose differences in the reports.
 
+### Usage and cost monitoring
+
+Each provider attempt is recorded in `usage/<run-id>/<model-id>/`, including failed and interrupted attempts. The dashboard displays per-run, per-model and per-attempt token, cache and OpenRouter cost data; the same history is available as JSON:
+
+```bash
+reporeview usage --workspace ./arenas/project-2026
+reporeview usage --workspace ./arenas/project-2026 --run-id <run-id>
+```
+
+Amounts are the OpenRouter credits reported by responses, not a complete invoice. A partial or unavailable total means at least one attempt has no reported cost; zero is shown only when actually reported. Provider cost, when available, is separate, including for BYOK. Token counts, cache and reasoning fields may also be unavailable. Imported and older reports cannot supply historical costs. The usage records contain metadata only, not prompts, source code or model responses. Monitoring does not impose a budget or query OpenRouter for missing data.
+
 Import the JSON or a Markdown fenced `json` block:
 
 ```bash

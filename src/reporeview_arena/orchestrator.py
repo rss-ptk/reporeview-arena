@@ -15,6 +15,7 @@ from typing import Any, Callable
 from .reports import parse_report, validate_locations
 from .repository import RepositoryReader
 from .storage import load_json, save_json
+from .usage import finish_attempt, new_run_id, read_usage, start_attempt
 
 # Self-contained OpenAI function calling tool definitions; never expose shell commands.
 TOOLS = [
@@ -121,12 +122,26 @@ def _provider_failure(exc: Exception) -> dict[str, Any]:
 
 
 async def _complete(completion, opts: dict[str, Any], model_id: str,
-                    retries: int, retry_delay: float) -> tuple[Any, int]:
+                    retries: int, retry_delay: float, *, workspace: Path, run_id: str,
+                    step: int, progress: Callable[[dict[str, Any]], None] | None = None) -> tuple[Any, int]:
     attempt = 0
     while True:
         try:
-            return await completion(**opts), attempt
+            path, record = start_attempt(workspace, run_id, model_id, opts["model"], step, attempt + 1,
+                                         api_base=opts.get("api_base"))
+        except OSError as exc:
+            raise AuditFailure({"error_type": "UsageWriteError", "stage": "usage",
+                                "error": "Could not save usage monitoring data; audit stopped."}) from exc
+        if progress:
+            progress({"model": model_id, "status": "running", "run_id": run_id})
+        try:
+            reply = await completion(**opts)
         except Exception as exc:
+            try:
+                finish_attempt(path, record)
+            except OSError as write_exc:
+                raise AuditFailure({"error_type": "UsageWriteError", "stage": "usage",
+                                    "error": "Could not save usage monitoring data; audit stopped."}) from write_exc
             details = _provider_failure(exc)
             details["attempts"] = attempt + 1
             delay = max(min(60.0, retry_delay * 2 ** attempt),
@@ -139,6 +154,15 @@ async def _complete(completion, opts: dict[str, Any], model_id: str,
             print(f"[arena] Retrying {model_id} in {delay:g}s ({attempt}/{retries}): "
                   f"{details['error_type']}", flush=True)
             await asyncio.sleep(delay)
+            continue
+        try:
+            finish_attempt(path, record, response=reply)
+        except OSError as exc:
+            raise AuditFailure({"error_type": "UsageWriteError", "stage": "usage",
+                                "error": "Could not save usage monitoring data; audit stopped."}) from exc
+        if progress:
+            progress({"model": model_id, "status": "running", "run_id": run_id})
+        return reply, attempt
 
 
 def _report_error(exc: Exception, response_text: str, finish_reason: str | None,
@@ -178,6 +202,7 @@ def _execute_tool(reader: RepositoryReader, name: str, args: dict[str, Any]) -> 
 async def audit_one(
     workspace: Path, model: dict[str, Any], *, max_steps: int = 35,
     timeout: int = 120, retries: int = 2, retry_delay: float = 5, completion=None,
+    run_id: str | None = None, progress: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run one model with independent conversation and bound read-only capabilities.
 
@@ -185,6 +210,7 @@ async def audit_one(
     tool to the model. The provider receives only permitted source it requests.
     """
     model_id = model_slug(model["id"])
+    run_id = run_id or new_run_id()
     if not 0 <= retries <= 5 or not 0 <= retry_delay <= 60:
         raise ValueError("retries must be between 0 and 5; retry_delay between 0 and 60 seconds")
     if completion is None:
@@ -236,7 +262,9 @@ async def audit_one(
         if not final:
             opts["tools"] = TOOLS
             opts["tool_choice"] = "auto"
-        reply, retried = await _complete(completion, opts, model_id, retries, retry_delay)
+        reply, retried = await _complete(completion, opts, model_id, retries, retry_delay,
+                                         workspace=workspace, run_id=run_id, step=step + 1,
+                                         progress=progress)
         usage["retries"] += retried
         usage["calls"] += 1
         last_call_usage = {}
@@ -311,12 +339,14 @@ async def audit_one(
             details["failure_file"] = failure_file.as_posix()
         raise AuditFailure(details) from exc
     report["audit_metadata"] = {
-        "model_id": model_id, "provider_model": model["model"],
+        "model_id": model_id, "provider_model": model["model"], "run_id": run_id,
         "commit": manifest["commit"],
         "elapsed_seconds": round(time.monotonic() - started, 2), **usage,
     }
     save_json(workspace / "reports" / f"{model_id}.json", report)
-    return {"model": model_id, "findings": len(report["findings"]), "usage": usage}
+    history = read_usage(workspace, run_id)["runs"]
+    return {"model": model_id, "findings": len(report["findings"]), "usage": usage, "run_id": run_id,
+            "usage_summary": history[0]["models"].get(model_id) if history else None}
 
 
 async def audit_many(
@@ -324,8 +354,10 @@ async def audit_many(
     max_steps: int = 35, timeout: int = 120, retries: int = 2,
     retry_delay: float = 5, completion=None,
     progress: Callable[[dict[str, Any]], None] | None = None,
+    run_id: str | None = None,
 ) -> list[dict]:
     semaphore = asyncio.Semaphore(max(1, min(concurrency, 16)))
+    run_id = run_id or new_run_id()
 
     async def go(model: dict[str, Any]) -> dict:
         async with semaphore:
@@ -336,6 +368,7 @@ async def audit_many(
                 outcome = await audit_one(
                     workspace, model, max_steps=max_steps, timeout=timeout,
                     retries=retries, retry_delay=retry_delay, completion=completion,
+                    run_id=run_id, progress=progress,
                 )
                 print(f"[arena] Finished {model['id']}: {outcome['findings']} findings", flush=True)
                 if progress:
@@ -350,7 +383,12 @@ async def audit_many(
                       f"{details['error']}", flush=True)
                 if progress:
                     progress({"model": model["id"], "status": "failed"})
-                return {"model": model["id"], **details}
+                try:
+                    history = read_usage(workspace, run_id)["runs"]
+                    summary = history[0]["models"].get(model["id"]) if history else None
+                except (OSError, ValueError, TypeError):
+                    summary = None
+                return {"model": model["id"], "run_id": run_id, "usage_summary": summary, **details}
 
     if len({m["id"] for m in models}) != len(models):
         raise ValueError("Each model must have a unique ID")

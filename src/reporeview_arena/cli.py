@@ -12,6 +12,7 @@ from .app import _data, serve
 from .orchestrator import audit_many, model_slug
 from .reports import parse_report, validate_locations
 from .storage import load_json, save_json
+from .usage import read_usage
 from .workspace import DEFAULT_FOCUS, initialize_workspace
 
 
@@ -61,6 +62,9 @@ def parser() -> argparse.ArgumentParser:
     web.add_argument("--port", type=int, default=8765)
     score = command.add_parser("score", help="Output current validated scorecard as JSON")
     score.add_argument("--workspace", required=True, type=Path)
+    usage = command.add_parser("usage", help="Show recorded usage and cost as JSON")
+    usage.add_argument("--workspace", required=True, type=Path)
+    usage.add_argument("--run-id", help="Filter by execution ID")
     prompt = command.add_parser("prompt", help="Show generated prompt for pasting into an IDE")
     prompt.add_argument("--workspace", required=True, type=Path)
     judge = command.add_parser("judge", help="Adjudicate one finding on the CLI")
@@ -102,6 +106,8 @@ def execute(args: argparse.Namespace) -> None:
         raise ValueError("Workspace not initialized; run 'reporeview init' first")
     if args.command == "prompt":
         print((workspace / "prompt.md").read_text(encoding="utf-8"))
+    elif args.command == "usage":
+        print(json.dumps(read_usage(workspace, args.run_id), indent=2))
     elif args.command == "run":
         if not args.confirm_send_code:
             raise ValueError("Sending source requires --confirm-send-code")

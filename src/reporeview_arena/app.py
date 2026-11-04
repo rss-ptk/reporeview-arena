@@ -30,6 +30,7 @@ from .reports import parse_report, validate_locations
 from .repository import validate_repository_root
 from .scoring import leaderboard, leaderboards
 from .storage import load_json, save_json
+from .usage import read_usage
 from .workspace import (
     DEFAULT_FOCUS,
     FOCUS_PRIORITY_LABELS,
@@ -142,6 +143,7 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 <div class="panel"><div class="row"><h3 data-i18n="generatedReviewPrompt">Generated review prompt</h3><button data-i18n="showPrompt" onclick="loadPrompt()">Show prompt</button></div><p class="muted" data-i18n="promptIntro">Copy this prompt into an IDE or another coding agent.</p><div id="prompt-actions" hidden><button data-i18n="copy" onclick="copyPrompt()">Copy</button> <button data-i18n="downloadPrompt" onclick="downloadPrompt()">Download prompt</button></div><pre id="prompt-text" class="promptbox" hidden></pre><div id="prompt-message" role="status"></div></div>
 </section>
 <section class="panel"><h3 data-i18n="importManualReport">Import manual report</h3><p class="muted" data-i18n="importExplanation">JSON report produced in any IDE or imported from another system. The model ID may contain only letters, digits, underscores and hyphens.</p><div class="formrow"><input id="importmodel" data-i18n-placeholder="modelIdPlaceholder" data-i18n-aria-label="modelIdLabel" placeholder="model-id"><input type="file" id="importfile" accept=".json,.md,.txt" data-i18n-aria-label="reportFile"><button data-i18n="import" onclick="importReport()">Import</button></div><div id="message" role="status"></div></section>
+<section class="panel"><h3 data-i18n="usageTitle">Usage and cost</h3><p class="muted" data-i18n="usageExplanation">Reported OpenRouter credits; missing costs are not treated as zero.</p><div id="usage-history"></div></section>
 <div class="wizard-actions"><button type="button" class="wizard-back" data-wizard-back="2" data-i18n="wizardBack">Back</button><button type="button" class="primary wizard-next" data-wizard-next="2" data-i18n="wizardContinue">Continue</button></div>
 </section>
 <section class="wizard-panel" id="wizard-panel-3" data-wizard-panel="3" aria-labelledby="wizard-heading-3" hidden>
@@ -449,6 +451,31 @@ const translations = {
     total: "Total",
     pending: "Pending",
     tokens: "Tokens",
+    usageTitle: "Usage and cost",
+    usageExplanation: "Reported OpenRouter credits; missing costs are not treated as zero.",
+    usageEmpty: "No usage records. Costs for older or imported reports are unavailable.",
+    usageRun: "Run",
+    usageAttempts: "Attempts",
+    usageInput: "Input",
+    usageOutput: "Output",
+    usageCache: "Cache read",
+    usageCacheWrite: "Cache written",
+    usageCacheRate: "Cache rate",
+    usageReasoning: "Reasoning",
+    usageCost: "OpenRouter cost",
+    usageUpstream: "Provider cost",
+    usageUnknown: "Unknown",
+    usageCoverage: "{known} of {total} attempts with cost",
+    usage_complete: "complete",
+    usage_partial: "partial",
+    usage_unavailable: "unavailable",
+    usageStep: "Step {step}, attempt {attempt}",
+    usageGeneration: "Generation",
+    usageRunning: "in progress",
+    usageFailed: "failed",
+    usageReceived: "response received",
+    usageProvider: "Provider",
+    usageModel: "Resolved model",
     noSummary: "No summary",
     findingOne: "{count} finding",
     findingMany: "{count} findings",
@@ -734,6 +761,31 @@ const translations = {
     total: "Total",
     pending: "Pendentes",
     tokens: "Tokens",
+    usageTitle: "Uso e custo",
+    usageExplanation: "Créditos reportados pela OpenRouter; custos ausentes não são considerados zero.",
+    usageEmpty: "Sem registros de uso. Custos de relatórios antigos ou importados não estão disponíveis.",
+    usageRun: "Execução",
+    usageAttempts: "Tentativas",
+    usageInput: "Entrada",
+    usageOutput: "Saída",
+    usageCache: "Cache lido",
+    usageCacheWrite: "Cache gravado",
+    usageCacheRate: "Taxa de cache",
+    usageReasoning: "Raciocínio",
+    usageCost: "Custo OpenRouter",
+    usageUpstream: "Custo do provedor",
+    usageUnknown: "Indisponível",
+    usageCoverage: "{known} de {total} tentativas com custo",
+    usage_complete: "completo",
+    usage_partial: "parcial",
+    usage_unavailable: "indisponível",
+    usageStep: "Rodada {step}, tentativa {attempt}",
+    usageGeneration: "Geração",
+    usageRunning: "em andamento",
+    usageFailed: "falhou",
+    usageReceived: "resposta recebida",
+    usageProvider: "Provedor",
+    usageModel: "Modelo usado",
     noSummary: "Sem resumo",
     findingOne: "{count} achado",
     findingMany: "{count} achados",
@@ -890,6 +942,7 @@ function applyLanguage() {
   refreshLocalizedMessages();
   if (dashboardStatus.models) renderModels();
   if (state.leaderboard) renderBoard();
+  renderUsage();
   if (dashboardStatus.job) renderJob(dashboardStatus.job);
   renderWizard();
   if (folderPickerData && document.getElementById("folder-dialog").open) {
@@ -1308,6 +1361,7 @@ async function reload() {
       reviewSetupBaselineResetRequested = false;
     }
     renderJob(dashboardStatus.job);
+    renderUsage();
     wizardDataError = false;
     wizardDataReady = true;
     updateWorkspaceActions();
@@ -1609,6 +1663,70 @@ function renderJob(job) {
   }
   document.getElementById("run-button").disabled =
     ["queued", "running"].includes(job.status) || !(dashboardStatus.models || []).length;
+}
+function usageValue(value) {
+  return value === null || value === undefined ? t("usageUnknown") : String(value);
+}
+function usageSummary(summary) {
+  function tokenValue(field) {
+    const count = summary.token_coverage[field] || 0;
+    return usageValue(summary[field]) + " (" + count + "/" + summary.attempts + ")";
+  }
+  return [
+    t("usageAttempts") + ": " + summary.attempts,
+    t("usageInput") + ": " + tokenValue("prompt_tokens"),
+    t("usageOutput") + ": " + tokenValue("completion_tokens"),
+    t("usageCache") + ": " + tokenValue("cached_tokens"),
+    t("usageCacheWrite") + ": " + tokenValue("cache_write_tokens"),
+    t("usageReasoning") + ": " + tokenValue("reasoning_tokens"),
+    t("usageCacheRate") + ": " + (summary.cache_rate === null ? t("usageUnknown") : (Number(summary.cache_rate) * 100).toFixed(1) + "%") + " (" + summary.cache_rate_attempts + "/" + summary.attempts + ")",
+    t("usageCost") + ": " + (summary.openrouter_credits_usd === null ? t("usageUnknown") : "US$ " + summary.openrouter_credits_usd) + " (" + t("usage_" + summary.cost_status) + ")",
+    t("usageCoverage", {known: summary.known_cost_attempts, total: summary.attempts}),
+  ].join(" · ");
+}
+function renderUsage() {
+  const root = document.getElementById("usage-history");
+  if (!root) return;
+  const runs = (state.usage && state.usage.runs) || [];
+  const signature = JSON.stringify([language, runs]);
+  if (root.dataset.renderSignature === signature) return;
+  root.dataset.renderSignature = signature;
+  const opened = new Set(Array.from(root.querySelectorAll("details[open]")).map(function (el) { return el.dataset.key; }));
+  const focused = document.activeElement && document.activeElement.closest("details");
+  const focusedKey = focused && root.contains(focused) ? focused.dataset.key : null;
+  root.replaceChildren();
+  if (!runs.length) { root.append(node("p", "muted", t("usageEmpty"))); return; }
+  runs.forEach(function (run) {
+    const section = node("details");
+    section.dataset.key = run.run_id;
+    section.open = opened.has(run.run_id);
+    section.append(node("summary", "", t("usageRun") + " " + run.run_id + " — " + t("usageCost") + ": " + (run.summary.openrouter_credits_usd === null ? t("usageUnknown") : "US$ " + run.summary.openrouter_credits_usd) + " (" + t("usage_" + run.summary.cost_status) + ")"));
+    section.append(node("p", "detail", usageSummary(run.summary)));
+    Object.entries(run.models).forEach(function ([model, summary]) {
+      section.append(node("p", "detail", model + " — " + usageSummary(summary)));
+    });
+    const list = node("ul", "job-outcomes");
+    run.attempts.forEach(function (attempt) {
+      const usage = attempt.usage || {};
+      const cost = attempt.cost || {};
+      const status = {in_progress: "usageRunning", failed: "usageFailed", response_received: "usageReceived"}[attempt.status];
+      const fields = [attempt.model_id, t("usageStep", {step: attempt.step, attempt: attempt.attempt}),
+        t(status || "usageUnknown"), t("usageInput") + ": " + usageValue(usage.prompt_tokens),
+        t("usageOutput") + ": " + usageValue(usage.completion_tokens),
+        t("usageCache") + ": " + usageValue(usage.cached_tokens),
+        t("usageCacheWrite") + ": " + usageValue(usage.cache_write_tokens),
+        t("usageReasoning") + ": " + usageValue(usage.reasoning_tokens),
+        t("usageCost") + ": " + (cost.openrouter_credits_usd == null ? t("usageUnknown") : "US$ " + cost.openrouter_credits_usd),
+        t("usageUpstream") + ": " + (cost.upstream_inference_usd == null ? t("usageUnknown") : "US$ " + cost.upstream_inference_usd),
+        t("usageGeneration") + ": " + usageValue(attempt.generation_id),
+        t("usageModel") + ": " + usageValue(attempt.resolved_model),
+        t("usageProvider") + ": " + usageValue(attempt.provider)];
+      list.append(node("li", "detail", fields.join(" · ")));
+    });
+    section.append(list);
+    root.append(section);
+    if (focusedKey === run.run_id) section.querySelector("summary").focus();
+  });
 }
 function renderBoard() {
   const modes = state.review_modes || ["code_audit", "golden_feature"];
@@ -2175,6 +2293,7 @@ def _data(workspace: Path) -> dict:
         "judgments": judgments,
         "leaderboard": leaderboard(reports, judgments),
         "leaderboards": leaderboards(reports, judgments, review_modes),
+        "usage": read_usage(workspace),
     }
 
 
