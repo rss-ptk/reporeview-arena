@@ -17,9 +17,11 @@ import pytest
 from reporeview_arena import app
 from reporeview_arena.storage import save_json
 from reporeview_arena.workspace import (
+    GOLDEN_FEATURE_ASPECTS,
     MAX_FOCUS_LENGTH,
     REVIEW_FOCUS_CRITERIA,
     REVIEW_FOCUS_INSTRUCTIONS,
+    format_golden_feature_direction,
     format_review_focus,
 )
 
@@ -99,6 +101,72 @@ def test_web_cli_accepts_optional_workspace_and_models():
     assert init.focus == "Review risks"
 
 
+def test_rubric_cli_accepts_improvements_twenty_and_removes_rigor(tmp_path):
+    from reporeview_arena import cli
+
+    workspace = _workspace(tmp_path / "cli-review")
+    manifest = json.loads((workspace / "manifest.json").read_text(encoding="utf-8"))
+    manifest["review_modes"] = ["code_audit"]
+    save_json(workspace / "manifest.json", manifest)
+    save_json(workspace / "reports" / "manual.json", {"findings": []})
+    save_json(
+        workspace / "judgments" / "manual.json",
+        {"findings": {}, "rubric": {"improvements": 15, "rigor": 5}},
+    )
+
+    args = cli.parser().parse_args([
+        "rubric", "--workspace", str(workspace), "--model", "manual",
+        "--improvements", "20",
+    ])
+    cli.execute(args)
+    judgment = json.loads(
+        (workspace / "judgments" / "manual.json").read_text(encoding="utf-8")
+    )
+    assert judgment["rubric"] == {"improvements": 20}
+
+    too_high = cli.parser().parse_args([
+        "rubric", "--workspace", str(workspace), "--model", "manual",
+        "--improvements", "21",
+    ])
+    with pytest.raises(ValueError, match="outside allowed range"):
+        cli.execute(too_high)
+
+    with pytest.raises(SystemExit):
+        cli.parser().parse_args([
+            "rubric", "--workspace", str(workspace), "--model", "manual",
+            "--improvements", "20", "--rigor", "4",
+        ])
+
+
+@pytest.mark.parametrize(
+    ("review_modes", "score_args", "expected_rubric"),
+    [
+        (["golden_feature"], ["--gold", "20"], {"gold": 20}),
+        (["code_audit", "golden_feature"],
+         ["--improvements", "18", "--gold", "14"],
+         {"improvements": 18, "gold": 14}),
+    ],
+)
+def test_rubric_cli_follows_selected_modes(tmp_path, review_modes, score_args, expected_rubric):
+    from reporeview_arena import cli
+
+    workspace = _workspace(tmp_path / "cli-review")
+    manifest = json.loads((workspace / "manifest.json").read_text(encoding="utf-8"))
+    manifest["review_modes"] = review_modes
+    save_json(workspace / "manifest.json", manifest)
+    save_json(workspace / "reports" / "manual.json", {"findings": []})
+    args = cli.parser().parse_args([
+        "rubric", "--workspace", str(workspace), "--model", "manual", *score_args,
+    ])
+
+    cli.execute(args)
+
+    judgment = json.loads(
+        (workspace / "judgments" / "manual.json").read_text(encoding="utf-8")
+    )
+    assert judgment["rubric"] == expected_rubric
+
+
 def test_web_cli_defaults_to_models_json_in_launch_directory(tmp_path, monkeypatch):
     from reporeview_arena import cli
 
@@ -136,6 +204,14 @@ def test_repository_configuration_has_visible_help_and_review_history(dashboard)
     assert 'id="workspace-path"' not in page
     assert 'id="out-path"' not in page
     assert 'id="focus-custom-text"' in page
+    assert 'id="golden-feature-aspects"' in page
+    assert "Third-party integrations" in page
+    assert "Integrações de terceiros" in page
+    assert "The proposal should coherently address every selected aspect" in page
+    assert "A proposta deve atender de forma coerente a todos os aspectos marcados" in page
+    for aspect_id in GOLDEN_FEATURE_ASPECTS:
+        assert f'id="golden-feature-aspect-{aspect_id}"' in page
+        assert f'data-golden-feature-aspect value="{aspect_id}"' in page
     assert page.count('type="range"') == 9
     assert page.count('role="tooltip"') == 12
     assert 'maxlength="4000"' in page
@@ -241,7 +317,9 @@ def test_managed_reviews_are_unique_listed_by_repository_and_opened_by_id(dashbo
     first_path = server.data_directory / "reviews" / first_id
     assert first_path.is_dir()
     assert (first_path / "manifest.json").is_file()
-    assert "Check retry behavior" in (first_path / "prompt.md").read_text(encoding="utf-8")
+    first_prompt = (first_path / "prompt.md").read_text(encoding="utf-8")
+    assert "Check retry behavior" in first_prompt
+    assert "## Golden feature direction" not in first_prompt
 
     status, second = _request(
         base_url, "/api/reviews", token=token, origin=base_url,
@@ -283,6 +361,41 @@ def test_managed_reviews_are_unique_listed_by_repository_and_opened_by_id(dashbo
     )
     assert status == 400
     assert error["error"]
+
+
+def test_managed_review_prompt_separates_golden_feature_aspects_from_review_priorities(
+    dashboard, tmp_path,
+):
+    server, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    _request(
+        base_url, "/api/settings/repository", token=token, origin=base_url,
+        payload={"path": str(repo)},
+    )
+
+    status, created = _request(
+        base_url, "/api/reviews", token=token, origin=base_url,
+        payload={"review_focus": {
+            "criteria": {"security": 5}, "custom_text": "",
+            "golden_feature_aspects": [
+                "architecture", "third_party_integrations",
+            ],
+        }},
+    )
+
+    assert status == 201
+    prompt = (
+        server.data_directory / "reviews" / created["review_id"] / "prompt.md"
+    ).read_text(encoding="utf-8")
+    priorities, direction = prompt.split("## Golden feature direction\n", 1)
+    direction = direction.split("\n\n## Repository map", 1)[0]
+    assert "Security and privacy — priority 5/5 (critical)" in priorities
+    assert "Architecture and maintainability" not in priorities
+    assert "Third-party integrations" not in priorities
+    assert "Architecture and maintainability" in direction
+    assert "Third-party integrations" in direction
+    assert "exactly one" in prompt.lower()
+    assert "state the mismatch" in direction
 
 
 def test_reports_are_scoped_to_each_review_and_same_model_can_run_again(
@@ -510,6 +623,91 @@ def test_review_focus_preserves_custom_text_as_entered():
     assert focus.endswith("Custom criteria (one per line):\n" + custom_text)
 
 
+def test_golden_feature_direction_is_optional_and_requires_all_selected_aspects():
+    assert format_golden_feature_direction([]) == ""
+
+    direction = format_golden_feature_direction(
+        ["architecture", "third_party_integrations"],
+    )
+
+    assert direction.startswith("\n\n## Golden feature direction\n")
+    assert "Architecture and maintainability" in direction
+    assert "Third-party integrations" in direction
+    assert "every selected aspect" in direction
+
+
+@pytest.mark.parametrize(
+    ("review_modes", "included", "omitted"),
+    [
+        (["code_audit"], ["## Code audit"], ["## Golden Feature"]),
+        (["golden_feature"], ["## Golden Feature"], ["## Code audit"]),
+        (["code_audit", "golden_feature"], ["## Code audit", "## Golden Feature"], []),
+    ],
+)
+def test_managed_review_persists_modes_and_returns_separate_leaderboards(
+    dashboard, tmp_path, review_modes, included, omitted,
+):
+    server, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    _request(
+        base_url, "/api/settings/repository", token=token, origin=base_url,
+        payload={"path": str(repo)},
+    )
+
+    status, created = _request(
+        base_url, "/api/reviews", token=token, origin=base_url,
+        payload={
+            "review_modes": review_modes,
+            "review_focus": {
+                "criteria": {}, "custom_text": "",
+                "golden_feature_aspects": ["architecture"],
+            },
+        },
+    )
+
+    assert status == 201
+    assert created["manifest"]["review_modes"] == review_modes
+    prompt = (
+        server.data_directory / "reviews" / created["review_id"] / "prompt.md"
+    ).read_text(encoding="utf-8")
+    for section in included:
+        assert section in prompt
+    for section in omitted:
+        assert section not in prompt
+    status, dashboard_status = _request(base_url, "/api/status")
+    assert status == 200
+    assert dashboard_status["review_modes"] == review_modes
+    assert dashboard_status["leaderboards"] == {
+        "code_audit": [], "golden_feature": [],
+    }
+
+
+def test_managed_review_rejects_empty_or_unknown_modes(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    _request(
+        base_url, "/api/settings/repository", token=token, origin=base_url,
+        payload={"path": str(repo)},
+    )
+    for review_modes in ([], ["unknown"], "code_audit"):
+        status, result = _request(
+            base_url, "/api/reviews", token=token, origin=base_url,
+            payload={"review_modes": review_modes},
+        )
+        assert status == 400
+        assert result["error"]
+    assert not (tmp_path / "arena-data" / "reviews").exists()
+
+
+@pytest.mark.parametrize(
+    "aspects",
+    [None, "architecture", ["unknown"], ["architecture", "architecture"], [None]],
+)
+def test_golden_feature_direction_rejects_invalid_aspects(aspects):
+    with pytest.raises(ValueError):
+        format_golden_feature_direction(aspects)
+
+
 @pytest.mark.parametrize(
     ("criteria", "custom_text"),
     [
@@ -618,6 +816,7 @@ def test_dashboard_initializes_with_structured_review_focus(dashboard, tmp_path)
             "review_focus": {
                 "criteria": {"critical_flows": 5, "correctness": 0, "security": 2},
                 "custom_text": "Check payment retry behavior\nTrace tenant boundaries",
+                "golden_feature_aspects": ["user_facing_features"],
             },
         },
     )
@@ -634,6 +833,11 @@ def test_dashboard_initializes_with_structured_review_focus(dashboard, tmp_path)
         "Custom criteria (one per line):\n"
         "Check payment retry behavior\nTrace tenant boundaries"
     ) in prompt
+    direction = prompt.split("## Golden feature direction\n", 1)[1].split(
+        "\n\n## Repository map", 1
+    )[0]
+    assert "User-facing functionality" in direction
+    assert "every selected aspect" in direction
     assert not (output / "review-focus.json").exists()
 
 
@@ -671,6 +875,13 @@ def test_dashboard_creates_prompt_with_all_criteria_and_max_custom_text(dashboar
         {"criteria": [], "custom_text": ""},
         {"criteria": {}, "custom_text": "x" * 4001},
         {"criteria": {}, "custom_text": "", "unexpected": "value"},
+        {"criteria": {}, "custom_text": "", "golden_feature_aspects": ["unknown"]},
+        {"criteria": {}, "custom_text": "", "golden_feature_aspects": "architecture"},
+        {"criteria": {}, "custom_text": "", "golden_feature_aspects": None},
+        {
+            "criteria": {}, "custom_text": "",
+            "golden_feature_aspects": ["architecture", "architecture"],
+        },
     ],
 )
 def test_dashboard_rejects_invalid_structured_review_focus(dashboard, tmp_path, review_focus):
@@ -850,6 +1061,24 @@ def test_run_rejects_missing_config_duplicate_and_unauthorized_requests(dashboar
     assert "overwrite" in error["error"].lower()
     assert not called
 
+    (workspace / "reports" / "mock.json").unlink()
+    server.models_path.write_text(json.dumps({"models": [{
+        "id": "mock", "model": "openrouter/vendor/model", "provider": {"order": ["a", "b"]},
+    }]}), encoding="utf-8")
+    status, error = _request(base_url, "/api/run", token=token, origin=base_url, payload=payload)
+    assert status == 400
+    assert "provider.order" in error["error"]
+    assert not called
+
+    server.models_path.write_text(json.dumps({"models": [{
+        "id": "mock", "model": "openrouter/vendor/model", "max_tokens": 4000,
+        "reasoning": {"max_tokens": 4000},
+    }]}), encoding="utf-8")
+    status, error = _request(base_url, "/api/run", token=token, origin=base_url, payload=payload)
+    assert status == 400
+    assert "reasoning.max_tokens" in error["error"]
+    assert not called
+
 
 def test_only_one_audit_can_run_at_a_time(dashboard, tmp_path, monkeypatch):
     _, base_url, token = dashboard
@@ -908,16 +1137,32 @@ NEW_TRANSLATION_KEYS = {
     "wizardStepReports", "wizardStepAdjudication", "wizardStepResults",
     "wizardBack", "wizardContinue", "wizardDone", "wizardCurrent", "wizardReady",
     "wizardLocked", "wizardProgressLabel",
-    "wizardRepoGate", "wizardReviewGate", "wizardReportsGate", "wizardAuditRunning",
+    "wizardRepoGate", "wizardReviewGate", "wizardUnsavedReviewSettings",
+    "wizardReportsGate", "wizardAuditRunning",
     "wizardFindingsGate", "wizardRubricGate", "wizardRefreshFailed",
-    "wizardReviewIntro", "wizardReportsIntro", "wizardAdjudicationIntro",
+    "wizardReviewIntro", "reviewSettingsUnsaved", "wizardReportsIntro", "wizardAdjudicationIntro",
     "wizardResultsIntro", "partialScoreboard", "newReview", "newReviewHelp", "reviewShort",
+    "serverAlertTitle", "serverAlertDismiss", "serverAlertContext",
+    "serverAlertContextNoStatus", "serverRequestFailed", "serverUnreadableResponse",
+    "reviewCreateBeforeContinue", "savingReviewSettings", "reviewSettingsSaved",
+    "reviewSettingsLocked", "reviewSettingsLockedByAudit",
+    "usageCacheEffect", "usageDiscountCoverage", "usageSession",
+    "reviewModes", "reviewModesDescription", "codeAuditMode", "goldenFeatureMode",
+    "selectReviewMode", "codeAuditScoreboard", "goldenFeatureScoreboard", "auditScore",
+    "featureScore", "proposal",
+    "reportSaved",
 }
 SELECTION_BLOCK = re.compile(
     r"// BEGIN contestant-selection[^\n]*\n(.*?)// END contestant-selection", re.S,
 )
 WIZARD_BLOCK = re.compile(
     r"// BEGIN wizard-state[^\n]*\n(.*?)// END wizard-state", re.S,
+)
+REVIEW_SETUP_BLOCK = re.compile(
+    r"// BEGIN review-setup[^\n]*\n(.*?)// END review-setup", re.S,
+)
+REVIEW_MODES_BLOCK = re.compile(
+    r"// BEGIN review-modes[^\n]*\n(.*?)// END review-modes", re.S,
 )
 
 
@@ -958,7 +1203,7 @@ def test_contestant_picker_is_a_labelled_checkbox_group(dashboard):
     assert 'id="run-models"' in body and 'id="models-message"' in body
     assert ('aria-describedby="contestants-description contestants-count models-message"'
             in group.group(0))
-    assert "Modelos participantes para auditar" in page
+    assert "Modelos desta revisão" in page
     assert "reportAlreadyExists" not in page
 
 
@@ -976,6 +1221,30 @@ def test_dashboard_translations_stay_in_sync_and_cover_the_markup(dashboard):
     assert (used | {key for key in literal if not key.endswith("_")}) <= english
 
 
+def test_usage_panel_exposes_cache_effect_coverage_and_session(dashboard):
+    _, base_url, _ = dashboard
+    page = _served_page(base_url)
+
+    assert "usageCacheEffect" in page
+    assert "summary.cache_discount_usd" in page
+    assert "summary.known_cache_discount_attempts" in page
+    assert "cost.cache_discount_usd" in page
+    assert "attempt.session_id" in page
+    assert "cache-write surcharges" in page
+    assert "custos adicionais de gravação" in page
+
+
+def test_usage_panel_shows_failed_attempt_error_and_http_status(dashboard):
+    _, base_url, _ = dashboard
+    page = _served_page(base_url)
+
+    assert 't("usageError")' in page
+    assert "attempt.error_type" in page
+    assert "attempt.http_status" in page
+    assert 'usageError: "Error"' in page
+    assert 'usageError: "Erro"' in page
+
+
 def test_control_page_exposes_accessible_five_step_wizard(dashboard):
     _, base_url, _ = dashboard
     page = _served_page(base_url)
@@ -988,12 +1257,62 @@ def test_control_page_exposes_accessible_five_step_wizard(dashboard):
     assert 'data-wizard-panel="4"' in page
     assert 'id="partial-scores"' in page
     assert 'id="wizard-message" role="status"' in page
+    assert re.search(r'<input type="number" id="improvements" min="0" max="20">', page)
+    assert 'id="rigor"' not in page
+    assert "Rigor /5" not in page
     reports_step = re.search(
         r'data-wizard-panel="2"(.*?)data-wizard-panel="3"', page, re.S,
     )
     assert reports_step and 'id="importmodel"' in reports_step.group(1)
     assert 'id="new-review-button"' in reports_step.group(1)
     assert 'aria-describedby="new-review-help"' in reports_step.group(1)
+    mode_picker = re.search(
+        r'<fieldset id="review-mode-picker"[^>]*>(.*?)</fieldset>', page, re.S,
+    )
+    assert mode_picker, "review mode picker is missing"
+    assert re.search(r'data-review-mode value="code_audit" checked', mode_picker.group(1))
+    assert re.search(r'data-review-mode value="golden_feature" checked', mode_picker.group(1))
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_review_mode_selection_shows_only_matching_configuration():
+    block = REVIEW_MODES_BLOCK.search(app.PAGE)
+    assert block, "review mode helpers are missing"
+    script = block.group(1) + """
+const modes = [
+  {checked: true, value: "code_audit"},
+  {checked: false, value: "golden_feature"},
+];
+const panels = {
+  "audit-focus-config": {}, "golden-feature-aspects": {}, "review-mode-message": {},
+};
+globalThis.document = {
+  querySelectorAll: () => modes,
+  getElementById: (id) => panels[id],
+};
+function setMessage(id, value) { panels[id].textContent = value; }
+function updateWorkspaceActions() {}
+function t(key) { return key; }
+updateReviewModeControls();
+const auditOnly = {
+  auditHidden: panels["audit-focus-config"].hidden,
+  featureHidden: panels["golden-feature-aspects"].hidden,
+  message: panels["review-mode-message"].textContent,
+};
+modes[0].checked = false;
+modes[1].checked = false;
+updateReviewModeControls();
+console.log(JSON.stringify({auditOnly, none: panels["review-mode-message"].textContent}));
+"""
+    result = subprocess.run(
+        [NODE, "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "auditOnly": {"auditHidden": False, "featureHidden": True, "message": ""},
+        "none": "selectReviewMode",
+    }
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
@@ -1083,6 +1402,131 @@ def test_wizard_progress_is_derived_from_current_review_state(
     assert progress["maxUnlocked"] == max_unlocked
 
 
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_wizard_keeps_collect_reports_locked_for_unsaved_new_review_settings():
+    block = WIZARD_BLOCK.search(app.PAGE)
+    assert block, "wizard-state block is missing"
+    script = block.group(1) + """
+const progress = deriveWizardState(
+  {repository_available:true, repository_path:'C:/repo', workspace:'C:/review'},
+  {manifest:{}, reports:{}, judgments:{}}, 'C:/repo', true,
+);
+console.log(JSON.stringify(progress));
+"""
+    result = subprocess.run(
+        [NODE, "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    progress = json.loads(result.stdout)
+    assert progress["reviewSetupUnsaved"] is True
+    assert progress["complete"] == [True, False, False, False]
+    assert progress["unlocked"] == [True, True, False, False, False]
+    assert progress["maxUnlocked"] == 1
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_review_setup_marks_changed_inputs_unsaved_until_the_baseline_is_reset():
+    block = REVIEW_SETUP_BLOCK.search(app.PAGE)
+    assert block, "review-setup block is missing"
+    script = """
+const sliders = [{dataset:{priorityId:"security"}, value:"5"}];
+const customText = {value:""};
+const aspects = [{checked:false, value:"architecture"}];
+const modes = [
+  {checked:true, value:"code_audit"},
+  {checked:true, value:"golden_feature"},
+];
+globalThis.document = {
+  querySelectorAll: (selector) => selector === ".priority-slider" ? sliders
+    : selector === "[data-golden-feature-aspect]" ? aspects : modes,
+  getElementById: () => customText,
+};
+function selectedReviewModes() {
+  return modes.filter((mode) => mode.checked).map((mode) => mode.value);
+}
+let reviewSetupBaseline = null;
+let reviewSetupPending = false;
+let reviewSetupNeedsSave = false;
+""" + block.group(1) + """
+reviewSetupBaseline = reviewSetupSignature();
+const initial = reviewSetupHasUnsavedChanges();
+sliders[0].value = "1";
+const sliderChanged = reviewSetupHasUnsavedChanges();
+sliders[0].value = "5";
+customText.value = "Check retries";
+const customTextChanged = reviewSetupHasUnsavedChanges();
+customText.value = "";
+aspects[0].checked = true;
+const aspectChanged = reviewSetupHasUnsavedChanges();
+aspects[0].checked = false;
+modes[0].checked = false;
+const modesChanged = reviewSetupHasUnsavedChanges();
+reviewSetupPending = true;
+const newReviewPending = reviewSetupHasUnsavedChanges();
+rememberReviewSetupBaseline();
+const rebased = reviewSetupHasUnsavedChanges();
+console.log(JSON.stringify({
+  initial, sliderChanged, customTextChanged, aspectChanged, modesChanged,
+  newReviewPending, rebased,
+}));
+"""
+    result = subprocess.run(
+        [NODE, "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "initial": False,
+        "sliderChanged": True,
+        "customTextChanged": True,
+        "aspectChanged": True,
+        "modesChanged": True,
+        "newReviewPending": True,
+        "rebased": False,
+    }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+@pytest.mark.parametrize(
+    ("review_modes", "report", "judgment"),
+    [
+        (
+            ["code_audit"],
+            {"findings": []},
+            {"rubric": {"improvements": 0}},
+        ),
+        (
+            ["golden_feature"],
+            {"findings": [], "golden_feature": {"name": "Feature"}},
+            {"rubric": {"gold": 10}},
+        ),
+    ],
+)
+def test_wizard_requires_only_scores_for_enabled_modes(review_modes, report, judgment):
+    block = WIZARD_BLOCK.search(app.PAGE)
+    assert block, "wizard-state block is missing"
+    data = {
+        "manifest": {"review_modes": review_modes},
+        "reports": {"a": report}, "judgments": {"a": judgment},
+    }
+    script = (
+        block.group(1)
+        + "\nconst result = deriveWizardState({repository_available:true, "
+        + f"repository_path:'C:/repo', workspace:'C:/review'}}, {json.dumps(data)}, "
+        + "'C:/repo');\nconsole.log(JSON.stringify(result));\n"
+    )
+    result = subprocess.run(
+        [NODE, "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    progress = json.loads(result.stdout)
+    assert progress["complete"] == [True, True, True, True]
+    assert progress["findingsReady"] is True
+    assert progress["rubricsReady"] is True
+
+
 def test_manual_report_import_works_without_provider_models(dashboard, tmp_path):
     _, base_url, token = dashboard
     workspace = _workspace(tmp_path / "manual-review")
@@ -1107,6 +1551,140 @@ def test_manual_report_import_works_without_provider_models(dashboard, tmp_path)
     status, data = _request(base_url, "/api/data")
     assert status == 200
     assert data["reports"]["manual"]["audit_metadata"]["source"] == "manual"
+    assert data["review_modes"] == ["code_audit", "golden_feature"]
+    assert list(data["leaderboards"]) == ["code_audit", "golden_feature"]
+
+
+@pytest.mark.parametrize(
+    ("review_mode", "report", "rubric", "board_key", "expected_score"),
+    [
+        (
+            "code_audit",
+            {"summary": "Audit only", "findings": [], "improvements": []},
+            {"improvements": 20}, "code_audit", 20,
+        ),
+        (
+            "golden_feature",
+            {"summary": "Feature only", "golden_feature": {"name": "Feature"}},
+            {"gold": 14}, "golden_feature", 14,
+        ),
+    ],
+)
+def test_manual_import_and_rubric_follow_selected_mode(
+    dashboard, tmp_path, review_mode, report, rubric, board_key, expected_score,
+):
+    _, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    workspace = tmp_path / "mode-review"
+    status, created = _request(
+        base_url, "/api/workspace/init", token=token, origin=base_url,
+        payload={"repo": str(repo), "out": str(workspace), "review_modes": [review_mode]},
+    )
+    assert status == 201
+    assert created["review_modes"] == [review_mode]
+
+    status, imported = _request(
+        base_url, "/api/import", token=token, origin=base_url,
+        payload={"model": "manual", "content": json.dumps(report)},
+    )
+    assert status == 200
+    assert imported["ok"] is True
+    status, saved = _request(
+        base_url, "/api/rubric", token=token, origin=base_url,
+        payload={"model": "manual", **rubric},
+    )
+    assert status == 200
+    assert saved["ok"] is True
+
+    status, data = _request(base_url, "/api/data")
+    assert status == 200
+    assert set(data["leaderboards"]) == {"code_audit", "golden_feature"}
+    other_board = "golden_feature" if board_key == "code_audit" else "code_audit"
+    assert data["leaderboards"][other_board] == []
+    assert data["leaderboards"][board_key][0]["total"] == expected_score
+    status, dashboard_status = _request(base_url, "/api/status")
+    assert status == 200
+    assert dashboard_status["review_modes"] == [review_mode]
+    assert dashboard_status["leaderboards"] == data["leaderboards"]
+
+
+def test_legacy_rigor_is_ignored_until_a_new_rubric_is_saved(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    workspace = tmp_path / "legacy-rigor-review"
+    status, _ = _request(
+        base_url, "/api/workspace/init", token=token, origin=base_url,
+        payload={"repo": str(repo), "out": str(workspace), "review_modes": ["code_audit"]},
+    )
+    assert status == 201
+
+    status, imported = _request(
+        base_url, "/api/import", token=token, origin=base_url,
+        payload={
+            "model": "manual",
+            "content": json.dumps({"summary": "Audit", "findings": [], "improvements": []}),
+        },
+    )
+    assert status == 200
+    assert imported["ok"] is True
+
+    judgment_path = workspace / "judgments" / "manual.json"
+    legacy_judgment = {"findings": {}, "rubric": {"improvements": 15, "rigor": 5}}
+    save_json(judgment_path, legacy_judgment)
+    status, data = _request(base_url, "/api/data")
+    assert status == 200
+    assert data["leaderboards"]["code_audit"][0]["total"] == 15
+    assert "rigor" not in data["leaderboards"]["code_audit"][0]
+    assert json.loads(judgment_path.read_text(encoding="utf-8")) == legacy_judgment
+
+    status, invalid = _request(
+        base_url, "/api/rubric", token=token, origin=base_url,
+        payload={"model": "manual", "improvements": 21},
+    )
+    assert status == 400
+    assert "Invalid improvements score" in invalid["error"]
+
+    status, saved = _request(
+        base_url, "/api/rubric", token=token, origin=base_url,
+        payload={"model": "manual", "improvements": 20},
+    )
+    assert status == 200
+    assert saved["ok"] is True
+    persisted = json.loads(judgment_path.read_text(encoding="utf-8"))
+    assert persisted["rubric"] == {"improvements": 20}
+
+
+def test_api_saves_both_rubric_scores_when_both_modes_are_selected(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    workspace = tmp_path / "combined-review"
+    status, _ = _request(
+        base_url, "/api/workspace/init", token=token, origin=base_url,
+        payload={"repo": str(repo), "out": str(workspace),
+                 "review_modes": ["code_audit", "golden_feature"]},
+    )
+    assert status == 201
+    report = {
+        "summary": "Combined review", "findings": [], "improvements": [],
+        "golden_feature": {"name": "New feature"},
+    }
+    status, imported = _request(
+        base_url, "/api/import", token=token, origin=base_url,
+        payload={"model": "manual", "content": json.dumps(report)},
+    )
+    assert status == 200
+    assert imported["ok"] is True
+
+    status, saved = _request(
+        base_url, "/api/rubric", token=token, origin=base_url,
+        payload={"model": "manual", "improvements": 20, "gold": 20},
+    )
+    assert status == 200
+    assert saved["ok"] is True
+    status, data = _request(base_url, "/api/data")
+    assert status == 200
+    assert data["leaderboards"]["code_audit"][0]["total"] == 20
+    assert data["leaderboards"]["golden_feature"][0]["total"] == 20
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
@@ -1157,14 +1735,29 @@ const sliders = [
   {value: "0", defaultValue: "3", dataset: {priorityId: "architecture"}},
 ];
 const customText = {value: "old criteria"};
+const goldenAspects = [
+  {checked: true, value: "architecture"},
+  {checked: false, value: "user_facing_features"},
+];
+const modes = [
+  {checked: false, value: "code_audit"},
+  {checked: false, value: "golden_feature"},
+];
 const repositoryInput = {value: "C:/repo"};
-const elements = {"focus-custom-text": customText, "repo-path": repositoryInput};
+const elements = {
+  "focus-custom-text": customText, "repo-path": repositoryInput,
+  "audit-focus-config": {}, "golden-feature-aspects": {}, "review-mode-message": {},
+};
 globalThis.document = {
-  querySelectorAll: () => sliders,
+  querySelectorAll: (selector) => selector === "[data-golden-feature-aspect]" ? goldenAspects
+    : selector === "[data-review-mode]" ? modes : sliders,
   getElementById: (id) => elements[id],
 };
 function updatePriorityLabel(slider) { slider.label = slider.value; }
+function updateReviewModeControls() {}
+function updateWorkspaceActions() {}
 function jobIsActive(job) { return !!job && ["queued", "running"].includes(job.status); }
+function t(key) { return key; }
 function setMessage() {}
 let visitedStep = null;
 function goToWizardStep(index) { visitedStep = index; }
@@ -1179,9 +1772,15 @@ function attempt() {
   sliders[0].value = "1";
   sliders[1].value = "0";
   customText.value = "old criteria";
+  goldenAspects[0].checked = true;
+  goldenAspects[1].checked = true;
   visitedStep = null;
   prepareNewReview();
-  return {values: sliders.map((slider) => slider.value), custom: customText.value, step: visitedStep};
+  return {
+    values: sliders.map((slider) => slider.value), custom: customText.value,
+    aspects: goldenAspects.map((aspect) => aspect.checked),
+    modes: modes.map((mode) => mode.checked), step: visitedStep,
+  };
 }
 const ready = attempt();
 dashboardStatus.job = {status: "running"};
@@ -1197,9 +1796,86 @@ console.log(JSON.stringify({ready, running, unavailable}));
     )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {
-        "ready": {"values": ["5", "3"], "custom": "", "step": 1},
-        "running": {"values": ["1", "0"], "custom": "old criteria", "step": None},
-        "unavailable": {"values": ["1", "0"], "custom": "old criteria", "step": None},
+        "ready": {
+            "values": ["5", "3"], "custom": "", "aspects": [False, False],
+            "modes": [True, True], "step": 1,
+        },
+        "running": {
+            "values": ["1", "0"], "custom": "old criteria", "aspects": [True, True],
+            "modes": [True, True],
+            "step": None,
+        },
+        "unavailable": {
+            "values": ["1", "0"], "custom": "old criteria", "aspects": [True, True],
+            "modes": [True, True],
+            "step": None,
+        },
+    }
+
+
+@pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
+def test_create_review_sends_selected_golden_feature_aspects():
+    function = re.search(r"async function createReview\(\) \{.*?\n\}", app.PAGE, re.S)
+    assert function, "createReview function is missing"
+    payload_function = re.search(r"function reviewSetupPayload\(\) \{.*?\n\}", app.PAGE, re.S)
+    assert payload_function, "reviewSetupPayload function is missing"
+    script = payload_function.group(0) + "\n" + function.group(0) + """
+let reviewCreationInProgress = false;
+const sliders = [{value: "5", dataset: {priorityId: "security"}}];
+const aspects = [
+  {checked: true, value: "architecture"},
+  {checked: false, value: "user_facing_features"},
+  {checked: true, value: "third_party_integrations"},
+];
+const button = {
+  disabled: false,
+  setAttribute() {},
+  removeAttribute() {},
+  textContent: "Create review",
+};
+const elements = {
+  "create-review-button": button,
+  "focus-custom-text": {value: "Check retries"},
+};
+globalThis.document = {
+  getElementById: (id) => elements[id],
+  querySelectorAll: (selector) => selector === ".priority-slider" ? sliders : aspects,
+};
+let request;
+async function api(path, body) { request = {path, body}; }
+function t(key) { return key; }
+function setLocalizedMessage() {}
+function updateWorkspaceActions() {}
+function setRepositoryError() {}
+async function reload() {}
+const modes = [
+  {checked: true, value: "code_audit"},
+  {checked: true, value: "golden_feature"},
+];
+function selectedReviewModes() {
+  return modes.filter((mode) => mode.checked).map((mode) => mode.value);
+}
+document.querySelectorAll = (selector) => selector === "[data-review-mode]"
+  ? modes : selector === ".priority-slider" ? sliders : aspects;
+createReview().then(() => console.log(JSON.stringify(request)));
+"""
+    result = subprocess.run(
+        [NODE, "-"], input=script, capture_output=True, text=True,
+        encoding="utf-8", timeout=20,
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == {
+        "path": "/api/reviews",
+        "body": {
+            "review_modes": ["code_audit", "golden_feature"],
+            "review_focus": {
+                "criteria": {"security": 5},
+                "custom_text": "Check retries",
+                "golden_feature_aspects": [
+                    "architecture", "third_party_integrations",
+                ],
+            },
+        },
     }
 
 

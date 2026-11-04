@@ -6,6 +6,7 @@ import os
 import re
 import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping
 
@@ -105,7 +106,7 @@ def list_reviews(
     if not root.is_dir():
         return []
     repository_root = repository_path.resolve() if repository_path is not None else None
-    reviews: list[dict[str, str]] = []
+    reviews: list[tuple[datetime, dict[str, str]]] = []
     try:
         folders = list(root.iterdir())
     except OSError:
@@ -127,14 +128,26 @@ def list_reviews(
                 continue
             if repository_root is not None and Path(original_path).resolve() != repository_root:
                 continue
-            if not isinstance(created_at, str):
-                created_at = str(folder.stat().st_mtime)
+            sort_time: datetime | None = None
+            if isinstance(created_at, str):
+                try:
+                    sort_time = datetime.fromisoformat(
+                        created_at.replace("Z", "+00:00"),
+                    )
+                except ValueError:
+                    pass
+            if sort_time is None:
+                sort_time = datetime.fromtimestamp(folder.stat().st_mtime, timezone.utc)
+            elif sort_time.tzinfo is None:
+                sort_time = sort_time.replace(tzinfo=timezone.utc)
+            sort_time = sort_time.astimezone(timezone.utc)
+            created_at = sort_time.isoformat()
         except (OSError, RuntimeError, ValueError, TypeError):
             continue
-        reviews.append({
+        reviews.append((sort_time, {
             "id": folder.name,
             "repo_name": repo_name,
             "commit": commit,
             "created_at": created_at,
-        })
-    return sorted(reviews, key=lambda review: review["created_at"], reverse=True)
+        }))
+    return [review for _, review in sorted(reviews, key=lambda item: item[0], reverse=True)]

@@ -86,6 +86,10 @@ reporeview run --workspace ./arenas/project-2026 --models models.json --concurre
 
 Models are addressed by LiteLLM's provider/model identifiers. The example contains **intentional placeholders**, not assertions that a specific model release is available. OpenAI, Anthropic, Gemini, Mistral, xAI and OpenRouter are example routes; GLM/Qwen/Kimi/MiMo may require OpenRouter or a compatible provider account. Refer to provider documentation for exact current IDs and key environment variables.
 
+OpenRouter entries can add a `provider` block to control which upstream provider serves the model, for example `"provider": {"sort": "price", "quantizations": ["fp8", "bf16", "fp16"], "max_price": {"prompt": 1, "completion": 4}}`. Only these three fields are accepted. `sort` (`price`, `throughput` or `latency`) picks the preferred provider; `quantizations` drops endpoints at other precisions, such as low-precision `int4`, but set it per model: a natively quantized model has no endpoints left if you exclude its own precision. `max_price` (USD per million tokens) makes the request fail instead of running on a more expensive provider. `provider.order` is rejected because OpenRouter does not use sticky routing with a manual order, so every tool round could land on a different provider and lose its prompt cache. `sort: "price"` keeps choosing the same cheapest provider; `throughput` and `latency` follow live metrics and may switch providers between rounds. The block is refused for non-OpenRouter models and for `api_base` values other than OpenRouter.
+
+OpenRouter entries can also add a `reasoning` block to limit reasoning tokens, which are billed as output and count toward the output limit. Set exactly one field: `"reasoning": {"effort": "low"}` (`none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`) or `"reasoning": {"max_tokens": 8000}` for a fixed budget. For budget-based models OpenRouter turns `effort` into a share of `max_tokens`, so pair it with a per-model `max_tokens` when you need a predictable cap. When both `max_tokens` values are set, `reasoning.max_tokens` must be lower than the model's `max_tokens`; otherwise reasoning could use the whole output budget and leave an empty report. The same block is sent on every call, the final report included, because changing reasoning settings between rounds can cost a prompt cache miss. Models without reasoning support may ignore it, and `effort: "none"` disables reasoning only where the model allows it.
+
 Each model gets an isolated conversation and only three functions: `list_files`, `read_file` and `search_code`. It cannot ask the Arena to execute code, write to the target repo, run shell commands or issue network requests. These restrictions apply to Arena tools; the upstream model provider receives the source excerpts it requests.
 
 Runs save `reports/<model-id>.json`. The CLI refuses to overwrite them. A failed model is reported separately, without corrupting successful reports. Token usage is recorded when returned by the provider; cost billing depends on the provider and is not capped by this version.
@@ -98,7 +102,7 @@ For free endpoints, start with one concurrent auditor to reduce request bursts:
 reporeview run --workspace ./arenas/project-2026 --models models.json --concurrency 1 --retries 2 --retry-delay 5 --confirm-send-code
 ```
 
-Each tool round is another API request. Reducing concurrency does not reset daily quotas or restore an unavailable model. Check [OpenRouter rate limits](https://openrouter.ai/docs/api/reference/limits) and [provider errors](https://openrouter.ai/docs/api/reference/errors) when these failures persist.
+Each tool round is another API request. After the last round the Arena makes one final call for the report; it keeps the same tool definitions with `tool_choice: "none"`, so the request still matches the cached prompt prefix. If a provider ignores `tool_choice` and requests tools anyway, the Arena repeats the final call once without tools, which adds one uncached request. Reducing concurrency does not reset daily quotas or restore an unavailable model. Check [OpenRouter rate limits](https://openrouter.ai/docs/api/reference/limits) and [provider errors](https://openrouter.ai/docs/api/reference/errors) when these failures persist.
 
 Failures include a `stage` (`provider`, `report` or `workspace`) and an actionable message. Provider failures include an HTTP status and `Retry-After` when available; Arena diagnostics omit SDK exception messages and request payloads. Invalid, empty or truncated model reports are saved locally to `failures/<model-id>.json` with `raw_response`, `validation_error`, `finish_reason`, any configured `max_tokens` value, last-call token usage and aggregate token usage. Inspect this file to distinguish malformed JSON, schema problems and invalid file/line citations. The latest rejected response replaces an older failure artifact for the same model; it is never accepted as a scored report. The Arena does not set a default output-token limit. To set one for a specific model, add `max_tokens` to that model's `models.json` entry. If a provider truncates output, set a suitable per-model limit or request a shorter report. To rerun only failed contestants, set `"enabled": false` on entries with existing successful reports. In the dashboard this is automatic: contestants with a saved report are locked and only the rest can be ticked.
 
@@ -109,6 +113,17 @@ reporeview prompt --workspace ./arenas/project-2026 > shared-prompt.md
 ```
 
 Open the same frozen repository content for each model, use the same prompt, and ask for the final structured JSON deliverable. When manual reviewers have wider tools (terminals, patches, internet), the methodology is *not strictly equivalent* to the Arena's API mode. Disclose differences in the reports.
+
+### Usage and cost monitoring
+
+Each provider attempt is recorded in `usage/<run-id>/<model-id>/`, including failed and interrupted attempts. The dashboard displays per-run, per-model and per-attempt token, cache and OpenRouter cost data; the same history is available as JSON:
+
+```bash
+reporeview usage --workspace ./arenas/project-2026
+reporeview usage --workspace ./arenas/project-2026 --run-id <run-id>
+```
+
+Amounts are the OpenRouter credits reported by responses, not a complete invoice. A partial or unavailable total means at least one attempt has no reported cost; zero is shown only when actually reported. Provider cost, when available, is separate, including for BYOK. Token counts, cache and reasoning fields may also be unavailable. Imported and older reports cannot supply historical costs. The usage records contain metadata only, not prompts, source code or model responses. A failed attempt also records its error class and HTTP status when available, such as `RateLimitError` with 429 or `NotFoundError` with 404, and the dashboard shows them in the attempt list; SDK error messages are never stored. Monitoring does not impose a budget or query OpenRouter for missing data.
 
 Import the JSON or a Markdown fenced `json` block:
 
@@ -136,29 +151,32 @@ The fixed data directory follows the operating system's standard per-user locati
 | macOS | `~/Library/Application Support/RepoReviewArena` |
 | Linux | `${XDG_DATA_HOME:-~/.local/share}/reporeview-arena` |
 
-It contains `settings.json` with only the absolute `repository_path` and a `reviews/<id>/` folder for each Control Page review. The review folder contains its manifest, snapshot, prompt, reports, judgments and any model failure diagnostics. Existing command workflows that use `--workspace` and `--out` continue to work with their chosen folders; they are not moved into the managed history automatically. New reviews provide nine review priorities on a 0-5 scale; zero omits a criterion, and custom criteria can be entered one per line. The panel can start provider audits, show per-model progress and partial failures, and its **Contestants to audit** checkbox group lists the enabled models from `models.json`; tick the contestants for a run (Select all and Clear selection are provided). Contestants that already have a report are locked so results are never overwritten, and models added to `models.json` later start unticked. The panel can also display/copy/download the generated prompt, import reports, adjudicate findings, set rubric scores and download the score JSON. Each audit requires a fresh confirmation before source fragments are sent to providers. Provider credentials remain in the environment of the local CLI process. `--models` is optional; without it, the manual review and import features remain available while provider audits are disabled. Scores persist under `judgments/`.
+It contains `settings.json` with only the absolute `repository_path` and a `reviews/<id>/` folder for each Control Page review. The review folder contains its manifest, snapshot, prompt, reports, judgments and any model failure diagnostics. Existing command workflows that use `--workspace` and `--out` continue to work with their chosen folders; they are not moved into the managed history automatically. New Control Page reviews default to both outputs, but you can select **Code audit**, **Golden Feature**, or both. Code audit settings include nine review priorities (0-5) and optional custom criteria; Golden Feature settings select proposal directions such as architecture, integrations, user-facing functionality, developer experience, security, performance, reliability, or data and reporting. If both are selected, each model returns the audit and proposal in separate sections of one report. The page collects judgments and rubric scores for the selected outputs and shows separate scoreboards: code audit is scored out of 80, and Golden Feature out of 20. Reviews created before mode selection are treated as both. `reporeview init` continues to create both outputs by default. The panel can start provider runs, show per-model progress and partial failures, and its **Models for this review** checkbox group lists enabled models from `models.json`; select contestants for a run (Select all and Clear selection are provided). A model with a report is locked so results are never overwritten, and models added later start unticked. The panel can also display/copy/download the generated prompt, import reports, adjudicate findings, set rubric scores and download score JSON. Each provider run requires fresh confirmation before source fragments are sent. Provider credentials remain in the local CLI process environment. `--models` is optional; without it, manual review and import remain available while provider runs are disabled. Scores persist under `judgments/`.
 
 CLI equivalents:
 
 ```bash
 reporeview judge --workspace ./arenas/project-2026 --model claude --finding FS-AUD-001 --verdict confirmed --severity P1 --issue-key EDGE-001
-reporeview rubric --workspace ./arenas/project-2026 --model claude --improvements 12 --gold 17 --rigor 4
+reporeview rubric --workspace ./arenas/project-2026 --model claude --improvements 16 --gold 17
 reporeview score --workspace ./arenas/project-2026
 ```
 
 Verdicts: `pending`, `confirmed`, `false_positive`. When a model reports multiple symptoms of the same root cause, assign the same `--issue-key` to count only once **within that model**. The same valid finding discovered independently by several models earns points for each of those models. Severity is set by the adjudicator, and false positives cost points regardless of their original severity.
+
+The `rubric` command requires only the flags for the workspace's selected modes: `--improvements` for Code audit (0-20), and `--gold` for Golden Feature (0-20). It rejects scores for unselected modes. `judge` is available only when Code audit is selected. Workspaces without `review_modes` retain the legacy default of both modes.
 
 ### Scoring (100 points)
 
 | Category | Maximum | Rules |
 | --- | ---: | --- |
 | Confirmed bugs | 60 | P0: 20, P1: 10, P2: 4, P3: 1 |
-| General improvements | 15 | Human-assessed |
+| General improvements | 20 | Human-assessed |
 | Golden feature | 20 | Human-assessed: value, falsifiable test, novelty, feasibility |
-| Rigor and coverage | 5 | Human-assessed |
 | False positives | Penalty | -5 each; -10 when evidence is knowingly fabricated |
 
 Totals are clamped to the interval [0, 100]. A model's output does not prove its own findings. Until validated, zero points are assigned for its reported defects. This prevents raw finding count from deciding the competition.
+
+The Control Page presents two independent rankings instead of combining these categories: code audit ranks confirmed bugs and general improvements (up to 80 points, less false-positive penalties); Golden Feature ranks the proposal score (up to 20 points). The CLI combines selected categories, so its 100-point score remains available when both modes are selected. Existing saved Rigor scores are ignored and are not transferred to Improvements; old judgment files are left untouched until scores are saved again.
 
 Golden feature evaluation should require an actual gap check, implementation path, testable value hypothesis, and transparent limitations. Demonstrated value should outperform unsupported projections.
 

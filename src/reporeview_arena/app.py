@@ -24,19 +24,25 @@ from .local_data import (
     review_directory,
     save_repository_path,
 )
-from .orchestrator import audit_many, model_slug
+from .modes import normalize_review_modes, rubric_fields_for_modes
+from .orchestrator import audit_many, model_slug, provider_preferences, reasoning_preferences
 from .reports import parse_report, validate_locations
 from .repository import validate_repository_root
-from .scoring import leaderboard
+from .scoring import InvalidJudgmentSeverity, leaderboard, leaderboards
 from .storage import load_json, save_json
+from .usage import read_usage
 from .workspace import (
     DEFAULT_FOCUS,
     FOCUS_PRIORITY_LABELS,
+    GOLDEN_FEATURE_ASPECTS,
     MAX_CUSTOM_FOCUS_LENGTH,
     MAX_FOCUS_LENGTH,
     REVIEW_FOCUS_CRITERIA,
+    format_golden_feature_direction,
     format_review_focus,
     initialize_workspace,
+    normalize_review_configuration,
+    update_workspace_review_configuration,
     validate_workspace,
 )
 
@@ -53,6 +59,8 @@ section{margin-top:32px}.meta{font-size:12px;color:var(--muted)}.meta b{color:va
 button,select,input,textarea{border:1px solid #48627d;background:#16263c;color:var(--ink);border-radius:7px;font:inherit;padding:7px 10px}button{cursor:pointer}button:hover{border-color:var(--accent)}button:disabled{opacity:.5;cursor:not-allowed}button.primary{background:#155b67;border-color:#237e8e}input[type=number]{width:78px}label{font-size:12px;color:var(--muted)}.finding{padding:15px 0;border-top:1px solid var(--line)}.finding:first-child{border-top:0}p{margin:6px 0 12px}.code{font-family:ui-monospace,monospace;color:#8bd6e8;font-size:12px;overflow-wrap:anywhere}.detail{font-size:13px;color:#c5d1df;white-space:pre-wrap}.formrow{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin-top:12px}.formrow>div{display:flex;flex-direction:column;gap:4px}.field{display:flex;flex-direction:column;gap:5px;min-width:220px;flex:1}.pathinput{width:100%}.field textarea{min-height:74px;resize:vertical}.model-choice{display:flex;align-items:center;gap:8px;margin:7px 0}.model-choice input{margin:0}.job-outcomes{padding-left:20px;color:var(--muted)}.promptbox{max-height:420px;overflow:auto;background:#0a1220;border:1px solid var(--line);border-radius:8px;padding:14px}
 table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1px solid var(--line);text-align:left}th{font-size:11px;color:var(--muted);font-weight:600}td.num{text-align:right;font-variant-numeric:tabular-nums}tr:first-child td{font-weight:700}pre{white-space:pre-wrap;overflow-wrap:anywhere}#message{margin-top:12px;color:var(--accent)}.save-feedback{margin:8px 0 0;font-size:13px;color:var(--muted)}.save-feedback:empty{display:none}.save-feedback[data-state="success"]{color:var(--accent)}.save-feedback[data-state="error"]{color:var(--red)}
 @media(max-width:800px){.grid{grid-template-columns:1fr}main{padding:22px 13px}.panel{padding:14px}}
+.server-alert{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:16px 0 0;padding:12px 14px;border:1px solid var(--red);border-left-width:4px;border-radius:8px;background:#2a1622;color:var(--ink)}.server-alert[hidden]{display:none}.server-alert-body{min-width:0}.server-alert p{margin:4px 0;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}.server-alert small{color:var(--muted);overflow-wrap:anywhere}.server-alert button{flex:0 0 auto}
+@media(max-width:460px){.server-alert{flex-direction:column}.server-alert button{align-self:flex-end}}
 .field-heading{display:flex;align-items:center;gap:7px}.help-wrap{position:relative;display:inline-flex;align-items:center}.help-tip{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border-radius:50%;font-size:11px;font-weight:700;line-height:1}.tooltip-content{display:none;position:absolute;left:0;top:calc(100% + 8px);z-index:30;width:min(280px,calc(100vw - 48px));padding:9px 11px;border:1px solid #48627d;border-radius:8px;background:#09111f;color:var(--ink);font-size:12px;font-weight:400;line-height:1.45;text-align:left;white-space:normal;box-shadow:0 8px 24px #0008}.help-wrap:hover .tooltip-content,.help-wrap:focus-within .tooltip-content{display:block}.help-wrap.tip-right .tooltip-content{left:auto;right:0}.field-description{font-size:12px;color:var(--muted);line-height:1.4}
 .workspace-accordions{display:grid;gap:10px}.workspace-accordion{border:1px solid var(--line);border-radius:10px;background:#101a2b}.workspace-accordion>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;font-weight:700;cursor:pointer;list-style:none}.workspace-accordion>summary::-webkit-details-marker,.workspace-accordion>summary::marker{display:none;content:""}.workspace-accordion>summary::after{content:"+";color:var(--accent);font-size:20px;line-height:1}.workspace-accordion[open]>summary::after{content:"−"}.workspace-accordion>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:7px}.workspace-accordion-body{border-top:1px solid var(--line);padding:14px}.workspace-accordion-body>.formrow:first-child{margin-top:0}.workspace-accordion .focus-config{grid-column:auto;margin:16px 0 12px}.workspace-accordion .focus-submit{grid-column:auto;margin-top:12px}
 .focus-config{grid-column:1/-1;width:100%;min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px;margin:16px 0 12px}.focus-config legend{padding:0 6px;font-weight:700}.focus-config legend .help-wrap{margin-left:4px}.focus-criteria-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:10px 0 14px}.focus-criterion{min-width:0;border:1px solid var(--line);border-radius:8px;background:#101a2b;padding:10px}.focus-criterion .field-heading{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:5px 6px}.focus-criterion label{grid-column:1;grid-row:1;color:var(--ink);line-height:1.35}.focus-criterion .help-wrap{grid-column:2;grid-row:1}.focus-criterion .tooltip-content{left:auto;right:0}.focus-priority-level{grid-column:1/-1;grid-row:2;color:var(--accent);font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}.priority-slider{display:block;width:100%;height:26px;margin:7px 0 0;padding:0;border:0;background:transparent;accent-color:var(--accent);cursor:pointer}.priority-slider:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.custom-focus-field{max-width:100%}.focus-submit{grid-column:1/-1;display:flex;justify-content:flex-end}
@@ -66,8 +74,15 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 @media(max-width:800px){.wizard-heading{grid-template-columns:1fr}.wizard-progress{max-width:none}.wizard-nav ol{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:460px){.wizard-nav ol{grid-template-columns:1fr}.wizard-step-button{min-height:58px}.wizard-actions button{min-width:0;flex:1}}
 @media(prefers-reduced-motion:reduce){.wizard-progress span{transition:none}}
+.golden-feature-config{min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px;margin:16px 0 12px}
+.golden-feature-config legend{padding:0 6px;font-weight:700}
+.golden-feature-aspect-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:8px;margin-top:10px}
+.golden-feature-aspect{display:flex;align-items:flex-start;gap:9px;min-width:0;padding:10px;border:1px solid var(--line);border-radius:8px;background:#101a2b;color:var(--ink);cursor:pointer;line-height:1.4}
+.golden-feature-aspect input{flex:0 0 auto;margin:2px 0 0;padding:0;accent-color:var(--accent)}
+.golden-feature-aspect:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 </style></head><body><main>
 <header><div><div class="eyebrow" data-i18n="independentAudits">Independent LLM code audits</div><h1>RepoReview <span class="gold">Arena</span></h1><div id="project" class="meta" data-i18n="loadingCompetition">Loading competition…</div></div><div class="header-actions"><span id="language-label" class="language-label" data-i18n="languageLabel">Language</span><div id="language-toggle" class="language-toggle" role="group" aria-labelledby="language-label"><button type="button" class="language-option" data-language="en" aria-pressed="true">EN</button><button type="button" class="language-option" data-language="pt-BR" aria-pressed="false">PT-BR</button></div><button data-i18n="refresh" onclick="reload()">Refresh</button></div></header>
+<div id="server-alert" class="server-alert" role="alert" aria-atomic="true" hidden><div class="server-alert-body"><strong data-i18n="serverAlertTitle">Server request failed</strong><p id="server-alert-message"></p><small id="server-alert-context"></small></div><button id="server-alert-dismiss" type="button" data-i18n="serverAlertDismiss">Dismiss</button></div>
 <section class="wizard-shell" aria-labelledby="wizard-title">
 <div class="wizard-heading"><div><div class="eyebrow" data-i18n="localWorkspace">Review setup</div><h2 id="wizard-title" data-i18n="wizardTitle">Review workflow</h2></div><div id="wizard-progress" class="wizard-progress" role="progressbar" aria-label="Workflow progress" data-i18n-aria-label="wizardProgress" aria-valuemin="1" aria-valuemax="5" aria-valuenow="1" aria-valuetext="Step 1 of 5"><span id="wizard-progress-fill"></span></div></div>
 <nav id="wizard-nav" class="wizard-nav" aria-label="Workflow progress" data-i18n-aria-label="wizardProgress"><ol>
@@ -97,12 +112,25 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 <button id="open-review-button" type="button" data-i18n="openReview" onclick="openReview()" disabled>Open review</button>
 <button id="create-review-button" class="primary" type="button" data-i18n="createReview" onclick="createReview()" disabled>Create review</button>
 </div>
-<fieldset class="focus-config" aria-describedby="review-focus-guidance">
+<fieldset id="review-mode-picker" class="focus-config" aria-describedby="review-modes-description review-mode-message">
+<legend data-i18n="reviewModes">Review outputs</legend>
+<p id="review-modes-description" class="field-description" data-i18n="reviewModesDescription">Choose one or both independent review outputs. Both are selected by default.</p>
+<label class="model-choice"><input type="checkbox" data-review-mode value="code_audit" checked><span data-i18n="codeAuditMode">Code audit</span></label>
+<label class="model-choice"><input type="checkbox" data-review-mode value="golden_feature" checked><span data-i18n="goldenFeatureMode">Golden Feature</span></label>
+<div id="review-mode-message" role="status"></div>
+</fieldset>
+<fieldset id="audit-focus-config" class="focus-config" aria-describedby="review-focus-guidance">
 <legend><span data-i18n="reviewFocus">Review focus</span><span class="help-wrap"><button class="help-tip" type="button" data-i18n-aria-label="helpReviewFocus" aria-describedby="review-focus-help">?</button><span class="tooltip-content" id="review-focus-help" role="tooltip" data-i18n="reviewFocusHelp">Set how much each criterion should guide the review. A value of 0 omits that criterion.</span></span></legend>
 <p id="review-focus-guidance" class="field-description" data-i18n="reviewFocusDescription">Set each priority from 0 (omit) to 5 (critical). Priorities guide attention; evidence standards stay the same.</p>
 <div id="focus-criteria" class="focus-criteria-grid">__FOCUS_CRITERIA__</div>
 <div class="field custom-focus-field"><div class="field-heading"><label for="focus-custom-text" data-i18n="customCriteria">Custom criteria</label><span class="help-wrap tip-right"><button class="help-tip" type="button" data-i18n-aria-label="helpCustomCriteria" aria-describedby="focus-custom-help">?</button><span class="tooltip-content" id="focus-custom-help" role="tooltip" data-i18n="customCriteriaHelp">Add additional review criteria, one per line. This text is included as written in the generated prompt.</span></span></div><textarea id="focus-custom-text" maxlength="__MAX_CUSTOM_FOCUS_LENGTH__" data-i18n-placeholder="customCriteriaPlaceholder" placeholder="One custom criterion per line" aria-describedby="focus-custom-help review-focus-guidance"></textarea><small class="field-description" data-i18n="customCriteriaDescription">Optional, up to 4,000 characters. Use one criterion per line.</small></div>
 </fieldset>
+<fieldset id="golden-feature-aspects" class="golden-feature-config" aria-describedby="golden-feature-direction-description">
+<legend data-i18n="goldenFeatureDirection">Golden feature direction</legend>
+<p id="golden-feature-direction-description" class="field-description" data-i18n="goldenFeatureDirectionDescription">Select one or more aspects for the single golden feature. The proposal should coherently address every selected aspect; leave all unchecked for no specific direction.</p>
+<div class="golden-feature-aspect-list">__GOLDEN_FEATURE_ASPECTS__</div>
+</fieldset>
+<div id="review-config-message" role="status"></div>
 <div id="workspace-message" role="status"></div>
 <div class="wizard-actions"><button type="button" class="wizard-back" data-wizard-back="1" data-i18n="wizardBack">Back</button><button type="button" class="primary wizard-next" data-wizard-next="1" data-i18n="wizardContinue">Continue</button></div>
 </section>
@@ -115,21 +143,25 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 <div class="panel"><div class="row"><h3 data-i18n="generatedReviewPrompt">Generated review prompt</h3><button data-i18n="showPrompt" onclick="loadPrompt()">Show prompt</button></div><p class="muted" data-i18n="promptIntro">Copy this prompt into an IDE or another coding agent.</p><div id="prompt-actions" hidden><button data-i18n="copy" onclick="copyPrompt()">Copy</button> <button data-i18n="downloadPrompt" onclick="downloadPrompt()">Download prompt</button></div><pre id="prompt-text" class="promptbox" hidden></pre><div id="prompt-message" role="status"></div></div>
 </section>
 <section class="panel"><h3 data-i18n="importManualReport">Import manual report</h3><p class="muted" data-i18n="importExplanation">JSON report produced in any IDE or imported from another system. The model ID may contain only letters, digits, underscores and hyphens.</p><div class="formrow"><input id="importmodel" data-i18n-placeholder="modelIdPlaceholder" data-i18n-aria-label="modelIdLabel" placeholder="model-id"><input type="file" id="importfile" accept=".json,.md,.txt" data-i18n-aria-label="reportFile"><button data-i18n="import" onclick="importReport()">Import</button></div><div id="message" role="status"></div></section>
+<section class="panel"><h3 data-i18n="usageTitle">Usage and cost</h3><p class="muted" data-i18n="usageExplanation">Reported OpenRouter credits; cache effect is positive for reported savings and negative for cache-write surcharges. Missing values remain unknown.</p><div id="usage-history"></div></section>
 <div class="wizard-actions"><button type="button" class="wizard-back" data-wizard-back="2" data-i18n="wizardBack">Back</button><button type="button" class="primary wizard-next" data-wizard-next="2" data-i18n="wizardContinue">Continue</button></div>
 </section>
 <section class="wizard-panel" id="wizard-panel-3" data-wizard-panel="3" aria-labelledby="wizard-heading-3" hidden>
 <div><div class="eyebrow" data-i18n="wizardStepAdjudication">Validate findings</div><h2 id="wizard-heading-3" tabindex="-1" data-i18n="findingsAdjudication">Findings &amp; adjudication</h2></div>
 <p class="muted" data-i18n="wizardAdjudicationIntro">Assign a verdict to every finding, then save the rubric for each report.</p>
 <section class="grid">
-<div class="panel">
+<div id="review-result-panel" class="panel">
 <h3 data-i18n="reviewContestant">Review a contestant</h3>
 <div class="formrow"><div><label for="model" data-i18n="model">Model</label><select id="model" onchange="showReport()"></select></div></div>
-<p id="abstract" class="muted"></p><h3 data-i18n="goldenFeature">Golden feature</h3><div id="gold"></div>
-<h3 style="margin-top:22px" data-i18n="rubricScores">Rubric scores</h3>
-<div class="formrow"><div><label for="improvements" data-i18n="improvements15">Improvements /15</label><input type="number" id="improvements" min="0" max="15"></div><div><label for="goldscore" data-i18n="gold20">Gold /20</label><input type="number" id="goldscore" min="0" max="20"></div><div><label for="rigor" data-i18n="rigor5">Rigor /5</label><input type="number" id="rigor" min="0" max="5"></div><button id="save-rubric-button" class="primary" data-i18n="saveScores" onclick="saveRubric()">Save scores</button></div>
+<p id="abstract" class="muted"></p>
+<section id="gold-feature-result"><h3 data-i18n="goldenFeature">Golden Feature</h3><div id="gold"></div></section>
+<section id="audit-rubric-fields"><h3 style="margin-top:22px" data-i18n="rubricScores">Rubric scores</h3>
+<div class="formrow"><div><label for="improvements" data-i18n="improvements20">Improvements /20</label><input type="number" id="improvements" min="0" max="20"></div></div></section>
+<div id="gold-rubric-field" class="formrow"><div><label for="goldscore" data-i18n="gold20">Golden Feature /20</label><input type="number" id="goldscore" min="0" max="20"></div></div>
+<div class="formrow"><button id="save-rubric-button" class="primary" data-i18n="saveScores" onclick="saveRubric()">Save scores</button></div>
 <p id="rubric-save-message" class="save-feedback" role="status" aria-live="polite" aria-atomic="true"></p>
 </div>
-<div class="panel"><div class="row"><h3 data-i18n="findingsAdjudication">Findings &amp; adjudication</h3><span id="count" class="pill"></span></div><p id="finding-save-message" class="save-feedback" role="status" aria-live="polite" aria-atomic="true"></p><div id="findings"></div></div>
+<div class="panel" id="audit-findings-panel"><div class="row"><h3 data-i18n="findingsAdjudication">Findings &amp; adjudication</h3><span id="count" class="pill"></span></div><p id="finding-save-message" class="save-feedback" role="status" aria-live="polite" aria-atomic="true"></p><div id="findings"></div></div>
 </section>
 <section class="panel"><div class="row"><h3 data-i18n="partialScoreboard">Live score preview</h3><span id="partial-score-status" class="meta"></span></div><div id="partial-scores" class="cards" aria-live="polite"></div></section>
 <div class="wizard-actions"><button type="button" class="wizard-back" data-wizard-back="3" data-i18n="wizardBack">Back</button><button type="button" class="primary wizard-next" data-wizard-next="3" data-i18n="wizardContinue">Continue</button></div>
@@ -137,9 +169,8 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 <section class="wizard-panel" id="wizard-panel-4" data-wizard-panel="4" aria-labelledby="wizard-heading-4" hidden>
 <div><div class="eyebrow" data-i18n="wizardStepResults">Scorecard</div><h2 id="wizard-heading-4" tabindex="-1" data-i18n="verifiedResultsOnly">Verified results only</h2></div>
 <p class="muted" data-i18n="wizardResultsIntro">All current reports have been reviewed. View and export the scorecard.</p>
-<section><div class="eyebrow" data-i18n="leaderboard">Leaderboard</div><div id="summary" class="cards"></div></section>
-<section class="panel"><div class="row"><h3 data-i18n="scoreboard">Scoreboard</h3><div class="header-actions"><button data-i18n="downloadScoreJson" onclick="downloadScore()">Download score JSON</button><button data-i18n="exportScorecard" onclick="exportJson()">Export scorecard</button></div></div><div style="overflow:auto"><table id="board"></table></div><p class="muted" data-i18n="scoreboardExplanation">Unreviewed findings score zero. Confirmed issues score by reviewed severity. Penalties apply for false positives.</p></section>
-<section><div class="eyebrow" data-i18n="valueProposals">Value proposals</div><h3 data-i18n="goldenFeatureContenders">Golden feature contenders</h3><div id="goldpodium" class="cards"></div></section>
+<section id="audit-score-section" class="panel"><div class="row"><h3 data-i18n="codeAuditScoreboard">Code audit scoreboard (/80)</h3><div class="header-actions"><button data-i18n="downloadScoreJson" onclick="downloadScore()">Download score JSON</button><button data-i18n="exportScorecard" onclick="exportJson()">Export scorecard</button></div></div><div id="summary" class="cards"></div><div style="overflow:auto"><table id="board"></table></div><p class="muted" data-i18n="scoreboardExplanation">Unreviewed findings score zero. Confirmed issues score by reviewed severity. Penalties apply for false positives.</p></section>
+<section id="gold-feature-score-section" class="panel"><div class="row"><h3 data-i18n="goldenFeatureScoreboard">Golden Feature scoreboard (/20)</h3><div class="header-actions"><button data-i18n="downloadScoreJson" onclick="downloadScore()">Download score JSON</button><button data-i18n="exportScorecard" onclick="exportJson()">Export scorecard</button></div></div><div style="overflow:auto"><table id="golden-feature-board"></table></div><div class="eyebrow" data-i18n="valueProposals">Value proposals</div><h3 data-i18n="goldenFeatureContenders">Golden Feature proposals</h3><div id="goldpodium" class="cards"></div></section>
 <div class="wizard-actions"><button type="button" class="wizard-back" data-wizard-back="4" data-i18n="wizardBack">Back</button></div>
 </section>
 </div>
@@ -175,7 +206,7 @@ const translations = {
     wizardStepRepository: "Repository",
     wizardStepReview: "Set up review",
     wizardStepReports: "Collect reports",
-    wizardStepAdjudication: "Validate findings",
+    wizardStepAdjudication: "Evaluate results",
     wizardStepResults: "Scorecard",
     wizardBack: "Back",
     wizardContinue: "Continue",
@@ -186,14 +217,21 @@ const translations = {
     wizardProgressLabel: "Step {current} of 5",
     wizardRepoGate: "Save a valid Git repository to unlock this step.",
     wizardReviewGate: "Create or open a valid review to unlock this step.",
+    wizardUnsavedReviewSettings: "Click Continue to apply these settings before collecting reports.",
     wizardReportsGate: "Add a valid report and finish any audit for this review to unlock this step.",
     wizardAuditRunning: "This review's audit is still running.",
     wizardFindingsGate: "Resolve every finding to unlock the scorecard.",
     wizardRubricGate: "Save rubric scores for every report to unlock the scorecard.",
     wizardRefreshFailed: "Workflow state could not be refreshed. Refresh the page to continue.",
     wizardReviewIntro: "Choose a saved review or create one and set its review priorities.",
+    reviewSettingsUnsaved: "Changes are pending. Click Continue to update this review's prompt.",
+    reviewCreateBeforeContinue: "Create the new review before continuing.",
+    savingReviewSettings: "Saving review settings and updating the prompt…",
+    reviewSettingsSaved: "Review settings saved and prompt updated.",
+    reviewSettingsLocked: "This review already has reports. Create a new review to change its prompt.",
+    reviewSettingsLockedByAudit: "Wait for the current audit to finish before changing review settings.",
     wizardReportsIntro: "Run selected providers or import a report produced elsewhere. Provider audits require fresh consent.",
-    wizardAdjudicationIntro: "Assign a verdict to every finding, then save the rubric for each report.",
+    wizardAdjudicationIntro: "Review findings and score only the deliverables selected for this review.",
     wizardResultsIntro: "All current reports have been reviewed. View and export the scorecard.",
     partialScoreboard: "Live score preview",
     independentAudits: "Independent LLM code audits",
@@ -214,6 +252,12 @@ const translations = {
     repositoryGitRequired: "Choose the root of a valid Git repository.",
     repositoryRootRequired: "Choose the Git repository root, not a subdirectory.",
     repositoryDirty: "This Git checkout has tracked changes. Commit or stash them before creating a review.",
+    serverAlertTitle: "Server request failed",
+    serverAlertDismiss: "Dismiss",
+    serverAlertContext: "Request {path} · HTTP {status}",
+    serverAlertContextNoStatus: "Request {path}",
+    serverRequestFailed: "The server returned an error.",
+    serverUnreadableResponse: "The server returned a response the app could not read.",
     reviewHistory: "Previous reviews for this repository",
     noPreviousReviews: "No saved reviews",
     openReview: "Open review",
@@ -223,7 +267,7 @@ const translations = {
     reviewCreated: "Review created and selected",
     reviewOpened: "Review opened",
     newReview: "New review",
-    newReviewHelp: "Set up a fresh review with the default priorities. This review will remain in history.",
+    newReviewHelp: "Choose review outputs and priorities for a fresh review. It will remain in history.",
     reviewShort: "Review {id}",
     openOrCreateArena: "Continue a review or start a new one",
     activeReview: "Active review",
@@ -267,10 +311,15 @@ const translations = {
     newWorkspacePathHelp: "Choose a folder that does not exist yet. The new review's snapshot, prompt, reports, and judgments will be saved there. Relative paths use the directory where you started reporeview web.",
     newWorkspacePathPlaceholder: "Path to new review folder",
     newWorkspacePathDescription: "A new folder where this review's files will be saved.",
-    reviewFocus: "Priorities for the new review",
+    reviewFocus: "Priorities for this review",
     helpReviewFocus: "Help for Review focus",
     reviewFocusHelp: "Set how much each criterion should guide the audit. A value of 0 omits that criterion. Higher values guide attention without changing evidence standards.",
-    reviewFocusDescription: "Choose priorities from 0 (omit) to 5 (critical). These settings apply only when creating a new review.",
+    reviewFocusDescription: "Choose priorities from 0 (omit) to 5 (critical). Click Continue to save them and update this review's prompt.",
+    reviewModes: "Review outputs",
+    reviewModesDescription: "Choose one or both outputs for this review. Both are selected by default.",
+    codeAuditMode: "Code audit",
+    goldenFeatureMode: "Golden Feature",
+    selectReviewMode: "Select Code audit, Golden Feature, or both before continuing.",
     priorityAriaValue: "Priority {value} of 5: {label}.",
     priorityOff: "Omitted",
     priorityLow: "Low",
@@ -283,6 +332,16 @@ const translations = {
     customCriteriaHelp: "Add additional review criteria, one per line. This text is included as written in the generated prompt.",
     customCriteriaPlaceholder: "One custom criterion per line",
     customCriteriaDescription: "Optional, up to 4,000 characters. Use one criterion per line.",
+    goldenFeatureDirection: "Golden Feature direction",
+    goldenFeatureDirectionDescription: "Select one or more aspects for the single golden feature. The proposal should coherently address every selected aspect; leave all unchecked for no specific direction.",
+    goldenFeatureAspectArchitecture: "Architecture and maintainability",
+    goldenFeatureAspectThirdPartyIntegrations: "Third-party integrations",
+    goldenFeatureAspectUserFacingFeatures: "User-facing functionality",
+    goldenFeatureAspectDeveloperExperience: "Developer experience and tooling",
+    goldenFeatureAspectSecurityPrivacy: "Security and privacy",
+    goldenFeatureAspectPerformanceScalability: "Performance and scalability",
+    goldenFeatureAspectReliabilityAutomation: "Reliability and automation",
+    goldenFeatureAspectDataReporting: "Data and reporting",
     criterionCriticalFlows: "Critical flows and impact",
     helpCriterionCriticalFlows: "Help for Critical flows and impact",
     criterionCriticalFlowsHelp: "Trace the most consequential user, business, or operational paths and what happens if they fail.",
@@ -318,15 +377,15 @@ const translations = {
     downloadScoreJson: "Download score JSON",
     scoreboardExplanation: "Unreviewed findings score zero. Confirmed issues score by reviewed severity. Penalties apply for false positives.",
     valueProposals: "Value proposals",
-    goldenFeatureContenders: "Golden feature contenders",
-    runAudit: "Run an audit",
+    goldenFeatureContenders: "Golden Feature proposals",
+    runAudit: "Run the selected review",
     auditDisclosure: "Selected providers receive source fragments from the frozen snapshot. Review the snapshot before authorizing a run.",
     concurrency: "Concurrency",
     maxSteps: "Max steps",
     retries: "Retries",
     retryDelay: "Retry delay (s)",
     authorizeCodeSending: "I authorize sending approved source fragments to the selected providers for this run.",
-    startAudit: "Start audit",
+    startAudit: "Start review",
     generatedReviewPrompt: "Generated review prompt",
     showPrompt: "Show prompt",
     promptIntro: "Copy this prompt into an IDE or another coding agent.",
@@ -334,11 +393,10 @@ const translations = {
     downloadPrompt: "Download prompt",
     reviewContestant: "Review a contestant",
     model: "Model",
-    goldenFeature: "Golden feature",
+    goldenFeature: "Golden Feature",
     rubricScores: "Rubric scores",
-    improvements15: "Improvements /15",
-    gold20: "Gold /20",
-    rigor5: "Rigor /5",
+    improvements20: "Improvements /20",
+    gold20: "Golden Feature /20",
     saveScores: "Save scores",
     savingFinding: "Saving finding…",
     findingSaved: "Finding {finding} saved.",
@@ -351,9 +409,14 @@ const translations = {
     modelIdLabel: "Model ID",
     reportFile: "Report file",
     import: "Import",
-    findingsAdjudication: "Findings & adjudication",
+    findingsAdjudication: "Evaluate selected results",
+    codeAuditScoreboard: "Code audit scoreboard (/80)",
+    goldenFeatureScoreboard: "Golden Feature scoreboard (/20)",
+    auditScore: "Code audit score /80",
+    featureScore: "Golden Feature score /20",
+    proposal: "Proposal",
     chooseModels: "Choose one or more contestants to audit.",
-    contestantsToAudit: "Contestants to audit",
+    contestantsToAudit: "Models for this review",
     contestantsDescription: "Only enabled models from models.json are listed. A report in this review locks that model; reports in other reviews do not. Create a new review to run the same model again.",
     selectAllContestants: "Select all",
     clearContestants: "Clear selection",
@@ -373,6 +436,7 @@ const translations = {
     jobInWorkspace: " in {workspace}",
     findingsSavedOne: "{count} finding saved",
     findingsSavedMany: "{count} findings saved",
+    reportSaved: "report saved",
     contestants: "Contestants",
     validatedFindings: "Validated findings",
     pendingReview: "Pending review",
@@ -381,11 +445,39 @@ const translations = {
     bugs: "Bugs",
     improve: "Improve",
     gold: "Gold",
-    rigor: "Rigor",
     penalties: "Penalties",
     total: "Total",
     pending: "Pending",
     tokens: "Tokens",
+    usageTitle: "Usage and cost",
+    usageExplanation: "Reported OpenRouter credits; cache effect is positive for reported savings and negative for cache-write surcharges. Missing values remain unknown.",
+    usageEmpty: "No usage records. Costs for older or imported reports are unavailable.",
+    usageRun: "Run",
+    usageAttempts: "Attempts",
+    usageInput: "Input",
+    usageOutput: "Output",
+    usageCache: "Cache read",
+    usageCacheWrite: "Cache written",
+    usageCacheRate: "Cache rate",
+    usageCacheEffect: "Cache cost effect",
+    usageDiscountCoverage: "{known} of {total} attempts with reported cache effect",
+    usageSession: "OpenRouter session",
+    usageReasoning: "Reasoning",
+    usageCost: "OpenRouter cost",
+    usageUpstream: "Provider cost",
+    usageUnknown: "Unknown",
+    usageCoverage: "{known} of {total} attempts with cost",
+    usage_complete: "complete",
+    usage_partial: "partial",
+    usage_unavailable: "unavailable",
+    usageStep: "Step {step}, attempt {attempt}",
+    usageGeneration: "Generation",
+    usageRunning: "in progress",
+    usageFailed: "failed",
+    usageReceived: "response received",
+    usageProvider: "Provider",
+    usageError: "Error",
+    usageModel: "Resolved model",
     noSummary: "No summary",
     findingOne: "{count} finding",
     findingMany: "{count} findings",
@@ -426,7 +518,7 @@ const translations = {
     wizardStepRepository: "Reposit\u00f3rio",
     wizardStepReview: "Configurar revis\u00e3o",
     wizardStepReports: "Coletar relat\u00f3rios",
-    wizardStepAdjudication: "Validar achados",
+    wizardStepAdjudication: "Avaliar resultados",
     wizardStepResults: "Placar",
     wizardBack: "Voltar",
     wizardContinue: "Continuar",
@@ -437,14 +529,21 @@ const translations = {
     wizardProgressLabel: "Etapa {current} de 5",
     wizardRepoGate: "Salve um reposit\u00f3rio Git v\u00e1lido para liberar esta etapa.",
     wizardReviewGate: "Crie ou abra uma revis\u00e3o v\u00e1lida para liberar esta etapa.",
+    wizardUnsavedReviewSettings: "Clique em Continuar para aplicar estas configura\u00e7\u00f5es antes de coletar relat\u00f3rios.",
     wizardReportsGate: "Adicione um relat\u00f3rio v\u00e1lido e aguarde a auditoria desta revis\u00e3o para liberar esta etapa.",
     wizardAuditRunning: "A auditoria desta revis\u00e3o ainda est\u00e1 em andamento.",
     wizardFindingsGate: "Defina um veredito para cada achado para liberar o placar.",
     wizardRubricGate: "Salve as notas da rubrica de cada relat\u00f3rio para liberar o placar.",
     wizardRefreshFailed: "N\u00e3o foi poss\u00edvel atualizar o fluxo. Atualize a p\u00e1gina para continuar.",
     wizardReviewIntro: "Escolha uma revis\u00e3o salva ou crie uma e defina suas prioridades.",
+    reviewSettingsUnsaved: "H\u00e1 altera\u00e7\u00f5es pendentes. Clique em Continuar para atualizar o prompt desta revis\u00e3o.",
+    reviewCreateBeforeContinue: "Crie a nova revis\u00e3o antes de continuar.",
+    savingReviewSettings: "Salvando as configura\u00e7\u00f5es e atualizando o prompt\u2026",
+    reviewSettingsSaved: "Configura\u00e7\u00f5es salvas e prompt atualizado.",
+    reviewSettingsLocked: "Esta revis\u00e3o j\u00e1 tem relat\u00f3rios. Crie uma nova revis\u00e3o para alterar o prompt.",
+    reviewSettingsLockedByAudit: "Aguarde a auditoria atual terminar antes de alterar as configura\u00e7\u00f5es.",
     wizardReportsIntro: "Execute auditorias nos provedores selecionados ou importe um relat\u00f3rio. Cada auditoria exige novo consentimento.",
-    wizardAdjudicationIntro: "Defina um veredito para cada achado e salve a rubrica de cada relat\u00f3rio.",
+    wizardAdjudicationIntro: "Revise os achados e dê notas apenas aos resultados selecionados nesta revisão.",
     wizardResultsIntro: "Todos os relat\u00f3rios atuais foram revisados. Consulte e exporte o placar.",
     partialScoreboard: "Pr\u00e9via do placar",
     independentAudits: "Auditorias independentes de código com LLMs",
@@ -465,6 +564,12 @@ const translations = {
     repositoryGitRequired: "Escolha a raiz de um reposit\u00f3rio Git v\u00e1lido.",
     repositoryRootRequired: "Escolha a raiz do reposit\u00f3rio Git, n\u00e3o uma subpasta.",
     repositoryDirty: "Este checkout Git tem altera\u00e7\u00f5es em arquivos controlados. Fa\u00e7a commit ou stash antes de criar uma revis\u00e3o.",
+    serverAlertTitle: "Falha na solicita\u00e7\u00e3o ao servidor",
+    serverAlertDismiss: "Fechar",
+    serverAlertContext: "Requisi\u00e7\u00e3o {path} \u00b7 HTTP {status}",
+    serverAlertContextNoStatus: "Requisi\u00e7\u00e3o {path}",
+    serverRequestFailed: "O servidor retornou um erro.",
+    serverUnreadableResponse: "O app n\u00e3o conseguiu interpretar a resposta do servidor.",
     reviewHistory: "Revis\u00f5es anteriores deste reposit\u00f3rio",
     noPreviousReviews: "Nenhuma revis\u00e3o salva",
     openReview: "Abrir revis\u00e3o",
@@ -474,7 +579,7 @@ const translations = {
     reviewCreated: "Revis\u00e3o criada e selecionada",
     reviewOpened: "Revis\u00e3o aberta",
     newReview: "Nova revis\u00e3o",
-    newReviewHelp: "Configure uma nova revis\u00e3o com as prioridades padr\u00e3o. Esta revis\u00e3o continuar\u00e1 no hist\u00f3rico.",
+    newReviewHelp: "Escolha os resultados e as prioridades de uma nova revisão. Ela continuará no histórico.",
     reviewShort: "Revis\u00e3o {id}",
     openOrCreateArena: "Continuar uma revisão ou começar outra",
     activeReview: "Revisão ativa",
@@ -518,11 +623,26 @@ const translations = {
     newWorkspacePathHelp: "Escolha uma pasta que ainda não exista. O snapshot, a instrução, os relatórios e as avaliações da nova revisão serão salvos nela. Caminhos relativos usam a pasta em que você iniciou reporeview web.",
     newWorkspacePathPlaceholder: "Caminho da nova pasta de revisão",
     newWorkspacePathDescription: "Pasta nova onde os arquivos desta revisão serão salvos.",
-    reviewFocus: "Prioridades da nova revisão",
+    reviewFocus: "Prioridades desta revis\u00e3o",
     helpReviewFocus: "Ajuda sobre o foco da revisão",
     reviewFocusHelp: "Defina quanto cada critério deve orientar a auditoria. O valor 0 omite o critério. Valores maiores aumentam a atenção sem alterar o padrão de evidências.",
-    reviewFocusDescription: "Escolha prioridades de 0 (omitir) a 5 (crítica). Essas opções só são usadas ao criar uma nova revisão.",
+    reviewFocusDescription: "Escolha prioridades de 0 (omitir) a 5 (cr\u00edtica). Clique em Continuar para salv\u00e1-las e atualizar o prompt desta revis\u00e3o.",
+    reviewModes: "Resultados da revisão",
+    reviewModesDescription: "Escolha um ou os dois resultados desta revis\u00e3o. Ambos come\u00e7am selecionados.",
+    codeAuditMode: "Auditoria de código",
+    goldenFeatureMode: "Golden Feature",
+    selectReviewMode: "Selecione Auditoria de c\u00f3digo, Golden Feature ou ambas antes de continuar.",
     priorityAriaValue: "Prioridade {value} de 5: {label}.",
+    goldenFeatureDirection: "Direcionamento da Golden Feature",
+    goldenFeatureDirectionDescription: "Selecione um ou mais aspectos para a única golden feature. A proposta deve atender de forma coerente a todos os aspectos marcados; deixe tudo desmarcado para não direcionar a proposta.",
+    goldenFeatureAspectArchitecture: "Arquitetura e manutenção",
+    goldenFeatureAspectThirdPartyIntegrations: "Integrações de terceiros",
+    goldenFeatureAspectUserFacingFeatures: "Funcionalidades para usuários",
+    goldenFeatureAspectDeveloperExperience: "Experiência de desenvolvimento e ferramentas",
+    goldenFeatureAspectSecurityPrivacy: "Segurança e privacidade",
+    goldenFeatureAspectPerformanceScalability: "Desempenho e escala",
+    goldenFeatureAspectReliabilityAutomation: "Confiabilidade e automação",
+    goldenFeatureAspectDataReporting: "Dados e relatórios",
     priorityOff: "Omitido",
     priorityLow: "Baixa",
     priorityMedium: "Média",
@@ -569,15 +689,15 @@ const translations = {
     downloadScoreJson: "Baixar placar em JSON",
     scoreboardExplanation: "Achados não revisados valem zero. Problemas confirmados pontuam conforme a severidade revisada. Falsos positivos geram penalidades.",
     valueProposals: "Propostas de valor",
-    goldenFeatureContenders: "Destaques das soluções",
-    runAudit: "Executar auditoria",
+    goldenFeatureContenders: "Propostas de Golden Feature",
+    runAudit: "Executar revisão selecionada",
     auditDisclosure: "Os provedores selecionados receberão trechos do snapshot congelado. Revise o snapshot antes de autorizar a execução.",
     concurrency: "Execuções simultâneas",
     maxSteps: "Máximo de etapas",
     retries: "Novas tentativas",
     retryDelay: "Intervalo entre tentativas (s)",
     authorizeCodeSending: "Autorizo o envio de trechos aprovados do código aos provedores selecionados nesta execução.",
-    startAudit: "Iniciar auditoria",
+    startAudit: "Iniciar revisão",
     generatedReviewPrompt: "Instrução de revisão gerada",
     showPrompt: "Exibir instrução",
     promptIntro: "Copie esta instrução para uma IDE ou outro agente de programação.",
@@ -585,11 +705,10 @@ const translations = {
     downloadPrompt: "Baixar instrução",
     reviewContestant: "Avaliar um modelo",
     model: "Modelo",
-    goldenFeature: "Destaque da solução",
+    goldenFeature: "Golden Feature",
     rubricScores: "Notas da rubrica",
-    improvements15: "Melhorias /15",
-    gold20: "Destaque /20",
-    rigor5: "Rigor /5",
+    improvements20: "Melhorias /20",
+    gold20: "Golden Feature /20",
     saveScores: "Salvar notas",
     savingFinding: "Salvando achado…",
     findingSaved: "Achado {finding} salvo.",
@@ -602,9 +721,14 @@ const translations = {
     modelIdLabel: "ID do modelo",
     reportFile: "Arquivo do relatório",
     import: "Importar",
-    findingsAdjudication: "Achados e validação",
+    findingsAdjudication: "Avaliar resultados selecionados",
+    codeAuditScoreboard: "Placar da auditoria de código (/80)",
+    goldenFeatureScoreboard: "Placar da Golden Feature (/20)",
+    auditScore: "Nota da auditoria de código /80",
+    featureScore: "Nota da Golden Feature /20",
+    proposal: "Proposta",
     chooseModels: "Escolha um ou mais modelos participantes para auditar.",
-    contestantsToAudit: "Modelos participantes para auditar",
+    contestantsToAudit: "Modelos desta revisão",
     contestantsDescription: "Somente modelos habilitados em models.json aparecem aqui. Um relatório nesta revisão bloqueia o modelo; relatórios de outras revisões não bloqueiam. Crie uma nova revisão para usar o mesmo modelo novamente.",
     selectAllContestants: "Selecionar todos",
     clearContestants: "Limpar seleção",
@@ -624,6 +748,7 @@ const translations = {
     jobInWorkspace: " em {workspace}",
     findingsSavedOne: "{count} achado salvo",
     findingsSavedMany: "{count} achados salvos",
+    reportSaved: "relatório salvo",
     contestants: "Modelos participantes",
     validatedFindings: "Achados validados",
     pendingReview: "Aguardando revisão",
@@ -632,11 +757,39 @@ const translations = {
     bugs: "Bugs",
     improve: "Melhorias",
     gold: "Destaque",
-    rigor: "Rigor",
     penalties: "Penalidades",
     total: "Total",
     pending: "Pendentes",
     tokens: "Tokens",
+    usageTitle: "Uso e custo",
+    usageExplanation: "Créditos reportados pela OpenRouter; o efeito do cache é positivo para economias reportadas e negativo para custos adicionais de gravação. Valores ausentes permanecem indisponíveis.",
+    usageEmpty: "Sem registros de uso. Custos de relatórios antigos ou importados não estão disponíveis.",
+    usageRun: "Execução",
+    usageAttempts: "Tentativas",
+    usageInput: "Entrada",
+    usageOutput: "Saída",
+    usageCache: "Cache lido",
+    usageCacheWrite: "Cache gravado",
+    usageCacheRate: "Taxa de cache",
+    usageCacheEffect: "Efeito financeiro do cache",
+    usageDiscountCoverage: "{known} de {total} tentativas com efeito do cache reportado",
+    usageSession: "Sessão OpenRouter",
+    usageReasoning: "Raciocínio",
+    usageCost: "Custo OpenRouter",
+    usageUpstream: "Custo do provedor",
+    usageUnknown: "Indisponível",
+    usageCoverage: "{known} de {total} tentativas com custo",
+    usage_complete: "completo",
+    usage_partial: "parcial",
+    usage_unavailable: "indisponível",
+    usageStep: "Rodada {step}, tentativa {attempt}",
+    usageGeneration: "Geração",
+    usageRunning: "em andamento",
+    usageFailed: "falhou",
+    usageReceived: "resposta recebida",
+    usageProvider: "Provedor",
+    usageError: "Erro",
+    usageModel: "Modelo usado",
     noSummary: "Sem resumo",
     findingOne: "{count} achado",
     findingMany: "{count} achados",
@@ -665,6 +818,11 @@ const translations = {
 
 let language = "en";
 let reviewCreationInProgress = false;
+let reviewSetupSaving = false;
+let reviewSetupBaseline = null;
+let reviewSetupPending = false;
+let reviewSetupBaselineResetRequested = false;
+let reviewSetupNeedsSave = false;
 
 function t(key, values) {
   const dictionary = translations[language] || translations.en;
@@ -781,9 +939,14 @@ function applyLanguage() {
   if (currentReport && !currentReport.summary) {
     document.getElementById("abstract").textContent = t("noSummary");
   }
+  const modeMessage = document.getElementById("review-mode-message");
+  if (modeMessage) {
+    setMessage(modeMessage.id, selectedReviewModes().length ? "" : t("selectReviewMode"));
+  }
   refreshLocalizedMessages();
   if (dashboardStatus.models) renderModels();
   if (state.leaderboard) renderBoard();
+  renderUsage();
   if (dashboardStatus.job) renderJob(dashboardStatus.job);
   renderWizard();
   if (folderPickerData && document.getElementById("folder-dialog").open) {
@@ -844,14 +1007,57 @@ function setRepositoryError(id, error) {
   }
   setMessage(id, message);
 }
+function dismissServerAlert() {
+  document.getElementById("server-alert").hidden = true;
+}
+function showServerAlert(message, path, status) {
+  const alert = document.getElementById("server-alert");
+  const messageElement = document.getElementById("server-alert-message");
+  const context = document.getElementById("server-alert-context");
+  const text = String(message || t("serverRequestFailed"));
+  const endpoint = String(path || "");
+  const hasStatus = status !== undefined && status !== null;
+  const contextKey = hasStatus ? "serverAlertContext" : "serverAlertContextNoStatus";
+  const contextValues = hasStatus
+    ? {path: endpoint, status: status}
+    : {path: endpoint};
+  const unchanged = !alert.hidden && messageElement.textContent === text &&
+    context.dataset.translationKey === contextKey &&
+    context.dataset.translationValues === JSON.stringify(contextValues);
+  if (unchanged) return;
+  messageElement.textContent = text;
+  setLocalizedMessage("server-alert-context", contextKey, contextValues);
+  alert.hidden = false;
+}
 async function api(path, payload) {
   const hasPayload = payload !== undefined;
-  const response = await fetch(path, {
-    method: hasPayload ? "POST" : "GET",
-    headers: { "Content-Type": "application/json", "X-Arena-Token": token },
-    body: hasPayload ? JSON.stringify(payload) : undefined,
-  });
-  const data = await response.json();
+  let response;
+  try {
+    response = await fetch(path, {
+      method: hasPayload ? "POST" : "GET",
+      headers: { "Content-Type": "application/json", "X-Arena-Token": token },
+      body: hasPayload ? JSON.stringify(payload) : undefined,
+    });
+  } catch (error) {
+    const message = error && error.message ? error.message : t("serverRequestFailed");
+    showServerAlert(message, path);
+    throw error;
+  }
+  const responseText = await response.text();
+  let data;
+  try {
+    data = responseText ? JSON.parse(responseText) : {};
+  } catch (error) {
+    if (response.ok) {
+      const message = t("serverUnreadableResponse");
+      showServerAlert(message, path, response.status);
+      throw Error(message);
+    }
+    data = {error: responseText.trim()};
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    data = {error: String(data || "")};
+  }
   if (!response.ok) {
     const errorKeys = {
       missing_page_token: "errorMissingPageToken",
@@ -860,8 +1066,11 @@ async function api(path, payload) {
       invalid_host: "errorInvalidHost",
     };
     const errorKey = errorKeys[data.error_code];
-    if (errorKey) throw Error(t(errorKey, {url: data.dashboard_url || location.origin}));
-    throw Error(data.error || "Request failed");
+    const message = errorKey
+      ? t(errorKey, {url: data.dashboard_url || location.origin})
+      : String(data.error || data.message || t("serverRequestFailed"));
+    showServerAlert(message, path, response.status);
+    throw Error(message);
   }
   return data;
 }
@@ -961,20 +1170,92 @@ function closeFolderPicker() {
   folderPickerTarget = null;
 }
 
+// BEGIN review-modes
+function selectedReviewModes() {
+  return Array.from(document.querySelectorAll("[data-review-mode]"))
+    .filter(function (input) { return input.checked; })
+    .map(function (input) { return input.value; });
+}
+// BEGIN review-setup
+function reviewSetupSignature() {
+  return JSON.stringify({
+    modes: selectedReviewModes(),
+    criteria: Array.from(document.querySelectorAll(".priority-slider"))
+      .map(function (slider) {
+        return [slider.dataset.priorityId, Number(slider.value)];
+      }),
+    customText: document.getElementById("focus-custom-text").value,
+    goldenFeatureAspects: Array.from(
+      document.querySelectorAll("[data-golden-feature-aspect]"),
+    ).filter(function (aspect) { return aspect.checked; })
+      .map(function (aspect) { return aspect.value; }),
+  });
+}
+function reviewSetupHasUnsavedChanges() {
+  return reviewSetupPending || reviewSetupNeedsSave ||
+    (reviewSetupBaseline !== null && reviewSetupSignature() !== reviewSetupBaseline);
+}
+function rememberReviewSetupBaseline() {
+  reviewSetupBaseline = reviewSetupSignature();
+  reviewSetupPending = false;
+  reviewSetupNeedsSave = false;
+}
+// END review-setup
+function setReviewModeSelection(modes) {
+  const selected = new Set(modes || ["code_audit", "golden_feature"]);
+  document.querySelectorAll("[data-review-mode]").forEach(function (input) {
+    input.checked = selected.has(input.value);
+  });
+  updateReviewModeControls();
+}
+function updateReviewModeControls() {
+  const modes = selectedReviewModes();
+  document.getElementById("audit-focus-config").hidden = !modes.includes("code_audit");
+  document.getElementById("golden-feature-aspects").hidden = !modes.includes("golden_feature");
+  setMessage("review-mode-message", modes.length ? "" : t("selectReviewMode"));
+  updateWorkspaceActions();
+}
+// END review-modes
+
 function updateWorkspaceActions() {
   const repositoryInput = document.getElementById("repo-path");
   const selectedPath = repositoryInput.value.trim();
   const savedPath = dashboardStatus.repository_path || "";
+  const hasReports = Object.keys(state.reports || {}).length > 0;
+  const settingsLockedByReports = hasReports && !reviewSetupPending;
+  const settingsLockedByAudit = jobIsActive(dashboardStatus.job);
+  const settingsDisabled = reviewCreationInProgress || reviewSetupSaving || settingsLockedByAudit ||
+    settingsLockedByReports;
   document.getElementById("save-repository-button").disabled =
     !selectedPath || (selectedPath === savedPath && dashboardStatus.repository_available);
   document.getElementById("create-review-button").disabled =
-    reviewCreationInProgress || !dashboardStatus.repository_available || selectedPath !== savedPath;
+    reviewCreationInProgress || reviewSetupSaving || !selectedReviewModes().length ||
+    !dashboardStatus.repository_available || selectedPath !== savedPath;
   document.getElementById("open-review-button").disabled =
-    !document.getElementById("review-history").value;
+    reviewSetupSaving || !document.getElementById("review-history").value;
   document.getElementById("new-review-button").disabled =
-    reviewCreationInProgress || !dashboardStatus.repository_available ||
+    reviewCreationInProgress || reviewSetupSaving || !dashboardStatus.repository_available ||
     selectedPath !== savedPath || !dashboardStatus.workspace ||
     jobIsActive(dashboardStatus.job);
+  ["review-mode-picker", "audit-focus-config", "golden-feature-aspects"]
+    .forEach(function (id) {
+      document.getElementById(id).disabled = settingsDisabled;
+    });
+  const reviewConfigMessage = document.getElementById("review-config-message");
+  if (!reviewCreationInProgress && reviewSetupPending) {
+    setLocalizedMessage("review-config-message", "reviewCreateBeforeContinue");
+  } else if (!reviewCreationInProgress && settingsLockedByReports) {
+    setLocalizedMessage("review-config-message", "reviewSettingsLocked");
+  } else if (!reviewCreationInProgress && settingsLockedByAudit) {
+    setLocalizedMessage("review-config-message", "reviewSettingsLockedByAudit");
+  } else if (!reviewCreationInProgress && reviewSetupHasUnsavedChanges()) {
+    clearGeneratedPrompt();
+    setLocalizedMessage("review-config-message", "reviewSettingsUnsaved");
+  } else if (["reviewSettingsUnsaved", "reviewCreateBeforeContinue",
+      "reviewSettingsLocked", "reviewSettingsLockedByAudit"].includes(
+      reviewConfigMessage.dataset.translationKey)) {
+    setMessage("review-config-message", "");
+  }
   renderWizard();
 }
 
@@ -1018,7 +1299,8 @@ async function reload() {
   try {
     const previousWorkspace = dashboardStatus.workspace;
     dashboardStatus = await api("/api/status");
-    if (previousWorkspace !== dashboardStatus.workspace) {
+    const workspaceChanged = previousWorkspace !== dashboardStatus.workspace;
+    if (workspaceChanged) {
       const prompt = document.getElementById("prompt-text");
       prompt.textContent = "";
       prompt.hidden = true;
@@ -1056,17 +1338,17 @@ async function reload() {
       if (previousModel && state.reports[previousModel]) models.value = previousModel;
       renderBoard();
       showReport();
-      if (previousWorkspace !== dashboardStatus.workspace) contestantSelection = null;
+      if (workspaceChanged) contestantSelection = null;
       renderModels();
     } else {
-      state = { reports: {}, judgments: {}, leaderboard: [] };
+      state = {
+        reports: {}, judgments: {}, leaderboard: [], review_modes: [],
+        leaderboards: {code_audit: [], golden_feature: []},
+      };
       updateActiveReviewLabel();
       renderProjectLabel();
       clear("model");
-      clear("summary");
-      clear("board");
-      clear("goldpodium");
-      clear("partial-scores");
+      renderBoard();
       setMessage("partial-score-status", "");
       clear("run-models");
       contestantSelection = null;
@@ -1075,7 +1357,15 @@ async function reload() {
       setMessage("models-message", "");
       setMessage("contestants-count", "");
     }
+    if (workspaceChanged || reviewSetupBaselineResetRequested ||
+        reviewSetupBaseline === null) {
+      restoreReviewFocusControls(state.manifest || null);
+      reviewSetupPending = false;
+      reviewSetupBaseline = reviewSetupSignature();
+      reviewSetupBaselineResetRequested = false;
+    }
     renderJob(dashboardStatus.job);
+    renderUsage();
     wizardDataError = false;
     wizardDataReady = true;
     updateWorkspaceActions();
@@ -1106,19 +1396,26 @@ function reconcileContestantSelection(previous, models, reports) {
 }
 // END contestant-selection
 // BEGIN wizard-state (pure helper, unit-tested under Node without a DOM)
-function deriveWizardState(status, data, repositoryInput) {
+function deriveWizardState(
+  status, data, repositoryInput, reviewSetupUnsaved = false, reviewSetupPending = false,
+) {
   const repositoryReady = status.repository_available === true &&
     String(repositoryInput || "").trim() === String(status.repository_path || "");
   const workspaceReady = repositoryReady && !!status.workspace && !!data.manifest;
   const reports = data.reports || {};
   const judgments = data.judgments || {};
   const reportIds = Object.keys(reports);
+  const reviewModes = data.review_modes ||
+    (data.manifest && data.manifest.review_modes) || ["code_audit", "golden_feature"];
+  const auditSelected = reviewModes.includes("code_audit");
+  const featureSelected = reviewModes.includes("golden_feature");
   const job = status.job;
   const auditRunning = !!job && job.workspace === status.workspace &&
     ["queued", "running"].includes(job.status);
   const reportsReady = workspaceReady && reportIds.length > 0 && !auditRunning;
-  const rubricLimits = { improvements: 15, gold: 20, rigor: 5 };
+  const rubricLimits = { improvements: 20, gold: 20 };
   function reportFindingsReviewed(id) {
+    if (!auditSelected) return true;
     const report = reports[id] || {};
     const judgment = judgments[id] || {};
     const findingJudgments = judgment.findings || {};
@@ -1133,14 +1430,19 @@ function deriveWizardState(status, data, repositoryInput) {
   function reportRubricSaved(id) {
     const judgment = judgments[id] || {};
     const rubric = judgment.rubric || {};
-    return Object.keys(rubricLimits).every(function (key) {
+    const keys = [];
+    if (auditSelected) keys.push("improvements");
+    if (featureSelected) keys.push("gold");
+    return keys.every(function (key) {
       return Number.isInteger(rubric[key]) && rubric[key] >= 0 && rubric[key] <= rubricLimits[key];
     });
   }
-  const findingsReady = reportsReady && reportIds.every(reportFindingsReviewed);
+  const findingsReady = reportsReady && (!auditSelected ||
+    reportIds.every(reportFindingsReviewed));
   const rubricsReady = reportsReady && reportIds.every(reportRubricSaved);
   const adjudicationReady = findingsReady && rubricsReady;
-  const complete = [repositoryReady, workspaceReady, reportsReady, adjudicationReady];
+  const reviewStepReady = workspaceReady && !reviewSetupUnsaved && !reviewSetupPending;
+  const complete = [repositoryReady, reviewStepReady, reportsReady, adjudicationReady];
   const unlocked = [true, false, false, false, false];
   for (let index = 1; index < unlocked.length; index += 1) {
     unlocked[index] = unlocked[index - 1] && complete[index - 1];
@@ -1149,9 +1451,15 @@ function deriveWizardState(status, data, repositoryInput) {
     complete: complete,
     unlocked: unlocked,
     maxUnlocked: unlocked.lastIndexOf(true),
+    workspaceReady: workspaceReady,
     findingsReady: findingsReady,
     rubricsReady: rubricsReady,
     auditRunning: auditRunning,
+    reviewSetupUnsaved: reviewSetupUnsaved,
+    reviewSetupPending: reviewSetupPending,
+    reviewModes: reviewModes,
+    auditSelected: auditSelected,
+    featureSelected: featureSelected,
   };
 }
 // END wizard-state
@@ -1163,7 +1471,11 @@ function wizardGateKeyFor(step, progress) {
   for (let gate = 0; gate < step; gate += 1) {
     if (progress.complete[gate]) continue;
     if (gate === 0) return "wizardRepoGate";
-    if (gate === 1) return "wizardReviewGate";
+    if (gate === 1) {
+      if (progress.reviewSetupPending) return "wizardReviewGate";
+      return progress.reviewSetupUnsaved
+        ? "wizardUnsavedReviewSettings" : "wizardReviewGate";
+    }
     if (gate === 2) return progress.auditRunning ? "wizardAuditRunning" : "wizardReportsGate";
     return progress.findingsReady ? "wizardRubricGate" : "wizardFindingsGate";
   }
@@ -1187,7 +1499,10 @@ function renderWizard() {
     return;
   }
   const repositoryInput = document.getElementById("repo-path").value;
-  const progress = deriveWizardState(dashboardStatus, state, repositoryInput);
+  const progress = deriveWizardState(
+    dashboardStatus, state, repositoryInput,
+    reviewSetupHasUnsavedChanges(), reviewSetupPending,
+  );
   wizardProgressState = progress;
   if (wizardCurrentStep === null) {
     wizardCurrentStep = progress.complete.findIndex(function (complete) { return !complete; });
@@ -1225,11 +1540,15 @@ function renderWizard() {
   });
   document.querySelectorAll(".wizard-next").forEach(function (button) {
     const index = Number(button.dataset.wizardNext);
-    button.disabled = !progress.complete[index];
+    const canApplyReviewSettings = index === 1 && current === 1 &&
+      progress.workspaceReady && !progress.reviewSetupPending &&
+      !reviewSetupSaving && selectedReviewModes().length > 0;
+    button.disabled = index === 1
+      ? !canApplyReviewSettings : !progress.complete[index];
   });
   document.querySelectorAll(".wizard-back").forEach(function (button) {
     const index = Number(button.dataset.wizardBack);
-    button.disabled = index <= 0 || !progress.unlocked[index - 1];
+    button.disabled = reviewSetupSaving || index <= 0 || !progress.unlocked[index - 1];
   });
 }
 function goToWizardStep(index) {
@@ -1336,11 +1655,12 @@ function renderJob(job) {
       const result = outcomes.get(model.id);
       let detail = model.id + ": " + statusText(model.status);
       if (result && result.error) detail += " - " + result.error;
-      else if (result && result.findings !== undefined) {
+      else if (result && result.findings !== undefined &&
+          (dashboardStatus.review_modes || ["code_audit"]).includes("code_audit")) {
         detail += " - " + t(result.findings === 1 ? "findingsSavedOne" : "findingsSavedMany", {
           count: result.findings,
         });
-      }
+      } else if (result) detail += " - " + t("reportSaved");
       list.append(node("li", "", detail));
     });
     root.append(list);
@@ -1348,14 +1668,93 @@ function renderJob(job) {
   document.getElementById("run-button").disabled =
     ["queued", "running"].includes(job.status) || !(dashboardStatus.models || []).length;
 }
+function usageValue(value) {
+  return value === null || value === undefined ? t("usageUnknown") : String(value);
+}
+function usageSummary(summary) {
+  function tokenValue(field) {
+    const count = summary.token_coverage[field] || 0;
+    return usageValue(summary[field]) + " (" + count + "/" + summary.attempts + ")";
+  }
+  return [
+    t("usageAttempts") + ": " + summary.attempts,
+    t("usageInput") + ": " + tokenValue("prompt_tokens"),
+    t("usageOutput") + ": " + tokenValue("completion_tokens"),
+    t("usageCache") + ": " + tokenValue("cached_tokens"),
+    t("usageCacheWrite") + ": " + tokenValue("cache_write_tokens"),
+    t("usageReasoning") + ": " + tokenValue("reasoning_tokens"),
+    t("usageCacheRate") + ": " + (summary.cache_rate === null ? t("usageUnknown") : (Number(summary.cache_rate) * 100).toFixed(1) + "%") + " (" + summary.cache_rate_attempts + "/" + summary.attempts + ")",
+    t("usageCacheEffect") + ": " + (summary.cache_discount_usd === null ? t("usageUnknown") : "US$ " + summary.cache_discount_usd) + " (" + t("usage_" + summary.cache_discount_status) + ")",
+    t("usageDiscountCoverage", {known: summary.known_cache_discount_attempts, total: summary.attempts}),
+    t("usageCost") + ": " + (summary.openrouter_credits_usd === null ? t("usageUnknown") : "US$ " + summary.openrouter_credits_usd) + " (" + t("usage_" + summary.cost_status) + ")",
+    t("usageCoverage", {known: summary.known_cost_attempts, total: summary.attempts}),
+  ].join(" · ");
+}
+function renderUsage() {
+  const root = document.getElementById("usage-history");
+  if (!root) return;
+  const runs = (state.usage && state.usage.runs) || [];
+  const signature = JSON.stringify([language, runs]);
+  if (root.dataset.renderSignature === signature) return;
+  root.dataset.renderSignature = signature;
+  const opened = new Set(Array.from(root.querySelectorAll("details[open]")).map(function (el) { return el.dataset.key; }));
+  const focused = document.activeElement && document.activeElement.closest("details");
+  const focusedKey = focused && root.contains(focused) ? focused.dataset.key : null;
+  root.replaceChildren();
+  if (!runs.length) { root.append(node("p", "muted", t("usageEmpty"))); return; }
+  runs.forEach(function (run) {
+    const section = node("details");
+    section.dataset.key = run.run_id;
+    section.open = opened.has(run.run_id);
+    section.append(node("summary", "", t("usageRun") + " " + run.run_id + " — " + t("usageCost") + ": " + (run.summary.openrouter_credits_usd === null ? t("usageUnknown") : "US$ " + run.summary.openrouter_credits_usd) + " (" + t("usage_" + run.summary.cost_status) + ")"));
+    section.append(node("p", "detail", usageSummary(run.summary)));
+    Object.entries(run.models).forEach(function ([model, summary]) {
+      section.append(node("p", "detail", model + " — " + usageSummary(summary)));
+    });
+    const list = node("ul", "job-outcomes");
+    run.attempts.forEach(function (attempt) {
+      const usage = attempt.usage || {};
+      const cost = attempt.cost || {};
+      const status = {in_progress: "usageRunning", failed: "usageFailed", response_received: "usageReceived"}[attempt.status];
+      const fields = [attempt.model_id, t("usageStep", {step: attempt.step, attempt: attempt.attempt}),
+        t(status || "usageUnknown"), t("usageInput") + ": " + usageValue(usage.prompt_tokens),
+        t("usageOutput") + ": " + usageValue(usage.completion_tokens),
+        t("usageCache") + ": " + usageValue(usage.cached_tokens),
+        t("usageCacheWrite") + ": " + usageValue(usage.cache_write_tokens),
+        t("usageReasoning") + ": " + usageValue(usage.reasoning_tokens),
+        t("usageCacheEffect") + ": " + (cost.cache_discount_usd == null ? t("usageUnknown") : "US$ " + cost.cache_discount_usd),
+        t("usageCost") + ": " + (cost.openrouter_credits_usd == null ? t("usageUnknown") : "US$ " + cost.openrouter_credits_usd),
+        t("usageUpstream") + ": " + (cost.upstream_inference_usd == null ? t("usageUnknown") : "US$ " + cost.upstream_inference_usd),
+        t("usageGeneration") + ": " + usageValue(attempt.generation_id),
+        t("usageModel") + ": " + usageValue(attempt.resolved_model),
+        t("usageProvider") + ": " + usageValue(attempt.provider)];
+      if (attempt.session_id) fields.push(t("usageSession") + ": " + attempt.session_id);
+      if (attempt.error_type || attempt.http_status) {
+        fields.push(t("usageError") + ": " + usageValue(attempt.error_type) +
+          (attempt.http_status ? " (HTTP " + attempt.http_status + ")" : ""));
+      }
+      list.append(node("li", "detail", fields.join(" · ")));
+    });
+    section.append(list);
+    root.append(section);
+    if (focusedKey === run.run_id) section.querySelector("summary").focus();
+  });
+}
 function renderBoard() {
-  const rows = state.leaderboard || [];
+  const modes = state.review_modes || ["code_audit", "golden_feature"];
+  const auditSelected = modes.includes("code_audit");
+  const featureSelected = modes.includes("golden_feature");
+  const boards = state.leaderboards || {};
+  const auditRows = boards.code_audit || [];
+  const featureRows = boards.golden_feature || [];
+  document.getElementById("audit-score-section").hidden = !auditSelected;
+  document.getElementById("gold-feature-score-section").hidden = !featureSelected;
   const summary = clear("summary");
   [
-    ["contestants", rows.length],
-    ["validatedFindings", rows.reduce(function (total, row) { return total + row.confirmed; }, 0)],
-    ["pendingReview", rows.reduce(function (total, row) { return total + row.pending; }, 0)],
-    ["topScore", rows[0] ? rows[0].total : 0],
+    ["contestants", auditRows.length],
+    ["validatedFindings", auditRows.reduce(function (total, row) { return total + row.confirmed; }, 0)],
+    ["pendingReview", auditRows.reduce(function (total, row) { return total + row.pending; }, 0)],
+    ["topScore", auditRows[0] ? auditRows[0].total : 0],
   ].forEach(function (item) {
     const card = node("div", "card");
     card.append(node("div", "eyebrow", t(item[0])), node("div", "total", item[1]));
@@ -1363,47 +1762,73 @@ function renderBoard() {
   });
   const board = clear("board");
   const headings = node("tr");
-  ["rank", "model", "bugs", "improve", "gold", "rigor", "penalties",
+  ["rank", "model", "bugs", "improve", "penalties",
    "total", "pending", "tokens"].forEach(function (key) {
     headings.append(node("th", "", t(key)));
   });
   board.append(headings);
-  rows.forEach(function (row, index) {
+  auditRows.forEach(function (row, index) {
     const line = node("tr");
-    const report = state.reports[row.model];
-    const tokens = (report.audit_metadata && report.audit_metadata.prompt_tokens || 0) +
-      (report.audit_metadata && report.audit_metadata.completion_tokens || 0);
-    [index + 1, row.model, row.bugs, row.improvements, row.gold, row.rigor,
-     row.penalty, row.total, row.pending, tokens].forEach(function (value, column) {
+    const report = state.reports[row.model] || {};
+    const metadata = report.audit_metadata || {};
+    const tokens = (metadata.prompt_tokens || 0) + (metadata.completion_tokens || 0);
+    [index + 1, row.model, row.bugs, row.improvements,
+     row.penalty, row.total + "/80", row.pending, tokens].forEach(function (value, column) {
       line.append(node("td", column > 1 ? "num" : "", value));
     });
     board.append(line);
   });
+  const featureBoard = clear("golden-feature-board");
+  const featureHeadings = node("tr");
+  ["rank", "model", "gold", "proposal"].forEach(function (key) {
+    featureHeadings.append(node("th", "", t(key)));
+  });
+  featureBoard.append(featureHeadings);
+  featureRows.forEach(function (row, index) {
+    const line = node("tr");
+    [index + 1, row.model, row.gold + "/20", row.golden_feature].forEach(
+      function (value, column) {
+        line.append(node("td", column === 2 ? "num" : "", value));
+      },
+    );
+    featureBoard.append(line);
+  });
   const podium = clear("goldpodium");
-  rows.slice().sort(function (left, right) { return right.gold - left.gold; })
-    .forEach(function (row) {
-      const card = node("div", "card");
-      const feature = state.reports[row.model].golden_feature;
-      card.append(
-        node("div", "eyebrow", row.model + " | " + row.gold + "/20"),
-        node("h3", "gold", row.golden_feature),
-        node("p", "muted", feature.mechanism || ""),
-      );
-      podium.append(card);
-    });
+  featureRows.forEach(function (row) {
+    const card = node("div", "card");
+    const report = state.reports[row.model] || {};
+    const feature = report.golden_feature || {};
+    card.append(
+      node("div", "eyebrow", row.model + " | " + row.gold + "/20"),
+      node("h3", "gold", row.golden_feature),
+      node("p", "muted", feature.mechanism || ""),
+    );
+    podium.append(card);
+  });
   renderPartialScores();
 }
 function renderPartialScores() {
   const root = clear("partial-scores");
-  const rows = state.leaderboard || [];
-  const pending = rows.reduce(function (total, row) { return total + row.pending; }, 0);
-  setMessage("partial-score-status", rows.length ? t("pendingReview") + ": " + pending : "");
-  rows.forEach(function (row) {
+  const boards = state.leaderboards || {};
+  const auditRows = boards.code_audit || [];
+  const featureRows = boards.golden_feature || [];
+  const pending = auditRows.reduce(function (total, row) { return total + row.pending; }, 0);
+  setMessage("partial-score-status", auditRows.length ? t("pendingReview") + ": " + pending : "");
+  auditRows.forEach(function (row) {
     const card = node("div", "card");
     card.append(
       node("div", "eyebrow", row.model),
-      node("div", "partial-score-total", row.total),
-      node("p", "muted", t("total") + " | " + t("validatedFindings") + ": " + row.confirmed),
+      node("div", "partial-score-total", row.total + "/80"),
+      node("p", "muted", t("auditScore") + " | " + t("validatedFindings") + ": " + row.confirmed),
+    );
+    root.append(card);
+  });
+  featureRows.forEach(function (row) {
+    const card = node("div", "card");
+    card.append(
+      node("div", "eyebrow", row.model),
+      node("div", "partial-score-total", row.total + "/20"),
+      node("p", "muted", t("featureScore")),
     );
     root.append(card);
   });
@@ -1413,11 +1838,18 @@ function showReport() {
   setMessage("rubric-save-message", "");
   const id = document.getElementById("model").value;
   const report = state.reports[id];
+  const modes = state.review_modes || ["code_audit", "golden_feature"];
+  const auditSelected = modes.includes("code_audit");
+  const featureSelected = modes.includes("golden_feature");
+  document.getElementById("audit-findings-panel").hidden = !auditSelected;
+  document.getElementById("audit-rubric-fields").hidden = !auditSelected;
+  document.getElementById("gold-rubric-field").hidden = !featureSelected;
+  document.getElementById("gold-feature-result").hidden = !featureSelected;
   if (!report) {
     document.getElementById("abstract").textContent = "";
     clear("gold");
     setMessage("count", "");
-    ["improvements", "goldscore", "rigor"].forEach(function (field) {
+    ["improvements", "goldscore"].forEach(function (field) {
       document.getElementById(field).value = 0;
     });
     clear("findings");
@@ -1426,18 +1858,26 @@ function showReport() {
   const judgment = state.judgments[id] || {};
   document.getElementById("abstract").textContent = report.summary || t("noSummary");
   const gold = clear("gold");
-  gold.append(node("h3", "gold", report.golden_feature.name));
-  gold.append(node("p", "muted", report.golden_feature.mechanism || ""));
-  ["improvements", "goldscore", "rigor"].forEach(function (field) {
+  const feature = report.golden_feature || {};
+  if (featureSelected && feature.name) {
+    gold.append(node("h3", "gold", feature.name));
+    gold.append(node("p", "muted", feature.mechanism || ""));
+  }
+  ["improvements", "goldscore"].forEach(function (field) {
     const rubricField = field === "goldscore" ? "gold" : field;
     document.getElementById(field).value =
       (judgment.rubric && judgment.rubric[rubricField]) || 0;
   });
-  setLocalizedMessage("count", report.findings.length === 1 ? "findingOne" : "findingMany", {
-    count: report.findings.length,
-  });
+  if (auditSelected) {
+    const findingCount = (report.findings || []).length;
+    setLocalizedMessage("count", findingCount === 1 ? "findingOne" : "findingMany", {
+      count: findingCount,
+    });
+  } else {
+    setMessage("count", "");
+  }
   const root = clear("findings");
-  report.findings.forEach(function (finding) {
+  (report.findings || []).forEach(function (finding) {
     const article = node("article", "finding");
     const heading = node("div", "row");
     const badge = node("span", "pill " + finding.severity.toLowerCase(),
@@ -1546,6 +1986,8 @@ async function openReview() {
   try {
     const reviewId = document.getElementById("review-history").value;
     await api("/api/reviews/open", { id: reviewId });
+    reviewSetupPending = false;
+    reviewSetupBaselineResetRequested = true;
     setLocalizedMessage("workspace-message", "reviewOpened");
     await reload();
   } catch (error) {
@@ -1553,18 +1995,104 @@ async function openReview() {
   }
 }
 // BEGIN new-review
+function reviewSetupPayload() {
+  const reviewModes = selectedReviewModes();
+  const criteria = {};
+  document.querySelectorAll(".priority-slider").forEach(function (slider) {
+    criteria[slider.dataset.priorityId] = Number(slider.value);
+  });
+  const goldenFeatureAspects = Array.from(
+    document.querySelectorAll("[data-golden-feature-aspect]"),
+  ).filter(function (aspect) { return aspect.checked; })
+    .map(function (aspect) { return aspect.value; });
+  return {
+    review_modes: reviewModes,
+    review_focus: {
+      criteria: criteria,
+      custom_text: document.getElementById("focus-custom-text").value,
+      golden_feature_aspects: goldenFeatureAspects,
+    },
+  };
+}
+function restoreReviewFocusControls(manifest) {
+  const modes = manifest && Array.isArray(manifest.review_modes)
+    ? manifest.review_modes : ["code_audit", "golden_feature"];
+  const settings = manifest && manifest.review_focus_settings;
+  const criteria = settings && settings.criteria && typeof settings.criteria === "object"
+    ? settings.criteria : {};
+  const aspects = settings && Array.isArray(settings.golden_feature_aspects)
+    ? settings.golden_feature_aspects : [];
+  document.querySelectorAll("[data-review-mode]").forEach(function (input) {
+    input.checked = modes.includes(input.value);
+  });
+  document.querySelectorAll(".priority-slider").forEach(function (slider) {
+    const value = criteria[slider.dataset.priorityId];
+    slider.value = Number.isInteger(value) && value >= 0 && value <= 5
+      ? String(value) : slider.defaultValue;
+    updatePriorityLabel(slider);
+  });
+  document.getElementById("focus-custom-text").value =
+    settings && typeof settings.custom_text === "string" ? settings.custom_text : "";
+  document.querySelectorAll("[data-golden-feature-aspect]").forEach(function (aspect) {
+    aspect.checked = aspects.includes(aspect.value);
+  });
+  document.getElementById("audit-focus-config").hidden = !modes.includes("code_audit");
+  document.getElementById("golden-feature-aspects").hidden = !modes.includes("golden_feature");
+  setMessage("review-mode-message", modes.length ? "" : t("selectReviewMode"));
+  reviewSetupNeedsSave = !!dashboardStatus.review_id && !settings &&
+    !Object.keys(state.reports || {}).length;
+}
 function resetReviewFocusControls() {
   document.querySelectorAll(".priority-slider").forEach(function (slider) {
     slider.value = slider.defaultValue;
     updatePriorityLabel(slider);
   });
   document.getElementById("focus-custom-text").value = "";
+  document.querySelectorAll("[data-golden-feature-aspect]").forEach(function (aspect) {
+    aspect.checked = false;
+  });
+  document.querySelectorAll("[data-review-mode]").forEach(function (mode) {
+    mode.checked = true;
+  });
+  updateReviewModeControls();
+}
+function clearGeneratedPrompt() {
+  const prompt = document.getElementById("prompt-text");
+  prompt.textContent = "";
+  prompt.hidden = true;
+  document.getElementById("prompt-actions").hidden = true;
+  setMessage("prompt-message", "");
+}
+async function continueReviewSetup() {
+  if (reviewSetupSaving || reviewSetupPending || !wizardProgressState ||
+      !wizardProgressState.workspaceReady || !selectedReviewModes().length) return;
+  if (reviewSetupHasUnsavedChanges()) {
+    reviewSetupSaving = true;
+    setLocalizedMessage("workspace-message", "savingReviewSettings");
+    updateWorkspaceActions();
+    try {
+      await api("/api/reviews/settings", reviewSetupPayload());
+      rememberReviewSetupBaseline();
+      setLocalizedMessage("workspace-message", "reviewSettingsSaved");
+      await reload();
+    } catch (error) {
+      setRepositoryError("workspace-message", error);
+      return;
+    } finally {
+      reviewSetupSaving = false;
+      updateWorkspaceActions();
+    }
+  }
+  if (reviewSetupHasUnsavedChanges() || reviewSetupPending) return;
+  goToWizardStep(2);
+  await loadPrompt();
 }
 function prepareNewReview() {
   const selectedPath = document.getElementById("repo-path").value.trim();
   if (reviewCreationInProgress || jobIsActive(dashboardStatus.job) ||
       !dashboardStatus.repository_available || !dashboardStatus.workspace ||
       selectedPath !== (dashboardStatus.repository_path || "")) return;
+  reviewSetupPending = true;
   resetReviewFocusControls();
   setMessage("workspace-message", "");
   goToWizardStep(1);
@@ -1578,17 +2106,9 @@ async function createReview() {
   button.setAttribute("aria-busy", "true");
   button.textContent = t("creatingReview");
   setLocalizedMessage("workspace-message", "creatingReviewStatus");
+  updateWorkspaceActions();
   try {
-    const criteria = {};
-    document.querySelectorAll(".priority-slider").forEach(function (slider) {
-      criteria[slider.dataset.priorityId] = Number(slider.value);
-    });
-    await api("/api/reviews", {
-      review_focus: {
-        criteria: criteria,
-        custom_text: document.getElementById("focus-custom-text").value,
-      },
-    });
+    await api("/api/reviews", reviewSetupPayload());
     updateWorkspaceActions();
     setLocalizedMessage("workspace-message", "reviewCreated");
     await reload();
@@ -1646,13 +2166,13 @@ async function copyPrompt() {
 }
 async function saveRubric() {
   const button = document.getElementById("save-rubric-button");
-  const disabledControls = [
-    document.getElementById("model"),
-    document.getElementById("improvements"),
-    document.getElementById("goldscore"),
-    document.getElementById("rigor"),
-    button,
-  ];
+  const modes = state.review_modes || ["code_audit", "golden_feature"];
+  const rubricFields = [];
+  if (modes.includes("code_audit")) rubricFields.push("improvements");
+  if (modes.includes("golden_feature")) rubricFields.push("goldscore");
+  const disabledControls = [document.getElementById("model"), button].concat(
+    rubricFields.map(function (field) { return document.getElementById(field); }),
+  );
   const previouslyDisabled = disabledControls.map(function (control) {
     return control.disabled;
   });
@@ -1661,12 +2181,12 @@ async function saveRubric() {
   button.textContent = t("savingScores");
   setSaveFeedback("rubric-save-message", "savingScores", {}, "pending");
   try {
-    await api("/api/rubric", {
-      model: document.getElementById("model").value,
-      improvements: +document.getElementById("improvements").value,
-      gold: +document.getElementById("goldscore").value,
-      rigor: +document.getElementById("rigor").value,
+    const payload = { model: document.getElementById("model").value };
+    rubricFields.forEach(function (field) {
+      const rubricKey = field === "goldscore" ? "gold" : field;
+      payload[rubricKey] = +document.getElementById(field).value;
     });
+    await api("/api/rubric", payload);
     await reload();
     setSaveFeedback("rubric-save-message", "rubricSaved", {}, "success");
   } catch (error) {
@@ -1705,9 +2225,15 @@ function downloadPrompt() {
 document.querySelectorAll(".priority-slider").forEach(function (slider) {
   slider.addEventListener("input", function () {
     updatePriorityLabel(slider);
+    updateWorkspaceActions();
   });
 });
+document.getElementById("focus-custom-text").addEventListener("input", updateWorkspaceActions);
+document.querySelectorAll("[data-golden-feature-aspect]").forEach(function (aspect) {
+  aspect.addEventListener("change", updateWorkspaceActions);
+});
 const languageToggle = document.getElementById("language-toggle");
+document.getElementById("server-alert-dismiss").addEventListener("click", dismissServerAlert);
 document.getElementById("folder-dialog").addEventListener("close", function () {
   folderRequestId += 1;
   folderPickerData = null;
@@ -1733,6 +2259,10 @@ document.getElementById("wizard-nav").addEventListener("click", function (event)
 });
 document.querySelectorAll(".wizard-next").forEach(function (button) {
   button.addEventListener("click", function () {
+    if (Number(button.dataset.wizardNext) === 1) {
+      continueReviewSetup();
+      return;
+    }
     goToWizardStep(Number(button.dataset.wizardNext) + 1);
   });
 });
@@ -1743,12 +2273,16 @@ document.querySelectorAll(".wizard-back").forEach(function (button) {
 });
 document.getElementById("repo-path").addEventListener("input", updateWorkspaceActions);
 document.getElementById("review-history").addEventListener("change", updateWorkspaceActions);
-["improvements", "goldscore", "rigor"].forEach(function (id) {
+["improvements", "goldscore"].forEach(function (id) {
   document.getElementById(id).addEventListener("input", function () {
     setMessage("rubric-save-message", "");
   });
 });
 updateWorkspaceActions();
+document.querySelectorAll("[data-review-mode]").forEach(function (input) {
+  input.addEventListener("change", updateReviewModeControls);
+});
+updateReviewModeControls();
 applyLanguage();
 reload();
 </script></body></html>"""
@@ -1759,13 +2293,19 @@ class NoActiveWorkspace(RuntimeError):
 
 
 def _data(workspace: Path) -> dict:
+    manifest = load_json(workspace / "manifest.json")
+    review_modes = normalize_review_modes(manifest.get("review_modes"))
+    manifest["review_modes"] = review_modes
     reports = {p.stem: load_json(p) for p in sorted((workspace / "reports").glob("*.json"))}
     judgments = {p.stem: load_json(p) for p in sorted((workspace / "judgments").glob("*.json"))}
     return {
-        "manifest": load_json(workspace / "manifest.json"),
+        "manifest": manifest,
+        "review_modes": review_modes,
         "reports": reports,
         "judgments": judgments,
-        "leaderboard": leaderboard(reports, judgments),
+        "leaderboard": leaderboard(reports, judgments, review_modes),
+        "leaderboards": leaderboards(reports, judgments, review_modes),
+        "usage": read_usage(workspace),
     }
 
 
@@ -1789,6 +2329,8 @@ def _configured_models(models_path: Path | None) -> tuple[list[dict[str, str]], 
                 raise ValueError("Model IDs must be unique")
             if not isinstance(entry.get("model"), str) or not entry["model"].strip():
                 raise ValueError("Each enabled model must specify a LiteLLM model name")
+            provider_preferences(entry)
+            reasoning_preferences(entry)
             seen.add(model_id)
             available.append({"id": model_id})
         if not available:
@@ -1829,6 +2371,24 @@ def _render_review_focus_criteria() -> str:
             f'priority-{criterion_id}-level review-focus-guidance" '
             f'aria-valuetext="{default_value} of 5, {level} priority">'
             f'</div>'
+        )
+    return "\n".join(controls)
+
+
+def _render_golden_feature_aspects() -> str:
+    """Render the fixed golden-feature direction checkboxes."""
+
+    controls = []
+    for aspect_id, label in GOLDEN_FEATURE_ASPECTS.items():
+        suffix = "".join(part.title() for part in aspect_id.split("_"))
+        controls.append(
+            f'<label class="golden-feature-aspect" '
+            f'for="golden-feature-aspect-{aspect_id}">'
+            f'<input id="golden-feature-aspect-{aspect_id}" type="checkbox" '
+            f'name="golden_feature_aspects" data-golden-feature-aspect '
+            f'value="{html.escape(aspect_id)}">'
+            f'<span data-i18n="goldenFeatureAspect{suffix}">{html.escape(label)}</span>'
+            f'</label>'
         )
     return "\n".join(controls)
 
@@ -2049,9 +2609,26 @@ def create_server(
                 repository_path = self.server.repository_path
                 repository_available = self.server.repository_available
                 repository_error = self.server.repository_error
+            review_modes = None
+            combined_leaderboard: list[dict] = []
+            boards = {"code_audit": [], "golden_feature": []}
+            if workspace_path is not None:
+                try:
+                    data = _data(workspace_path)
+                    review_modes = data["review_modes"]
+                    combined_leaderboard = data["leaderboard"]
+                    boards = {
+                        mode: data["leaderboards"].get(mode, [])
+                        for mode in boards
+                    }
+                except (OSError, ValueError, KeyError, TypeError):
+                    pass
             return {
                 "workspace": str(workspace_path) if workspace_path else None,
                 "review_id": review_id,
+                "review_modes": review_modes,
+                "leaderboard": combined_leaderboard,
+                "leaderboards": boards,
                 "repository_path": str(repository_path) if repository_path else None,
                 "repository_available": repository_available,
                 "repository_error": repository_error,
@@ -2069,6 +2646,7 @@ def create_server(
                 page = (
                     PAGE.replace("__TOKEN__", json.dumps(token))
                     .replace("__FOCUS_CRITERIA__", _render_review_focus_criteria())
+                    .replace("__GOLDEN_FEATURE_ASPECTS__", _render_golden_feature_aspects())
                     .replace("__MAX_CUSTOM_FOCUS_LENGTH__", str(MAX_CUSTOM_FOCUS_LENGTH))
                 )
                 self._reply(200, page.encode(), "text/html; charset=utf-8")
@@ -2086,6 +2664,8 @@ def create_server(
                     self._json(200, _data(self._active_workspace()))
                 except NoActiveWorkspace as exc:
                     self._json(409, {"error": str(exc)})
+                except InvalidJudgmentSeverity as exc:
+                    self._json(400, {"error": str(exc)})
                 except (OSError, ValueError, KeyError, TypeError):
                     self._json(400, {"error": "Could not load the selected workspace."})
             elif self.path == "/api/prompt":
@@ -2119,6 +2699,7 @@ def create_server(
                 "/api/folders", "/api/workspace/open", "/api/workspace/init", "/api/run",
                 "/api/rubric", "/api/adjudicate", "/api/import",
                 "/api/settings/repository", "/api/reviews", "/api/reviews/open",
+                "/api/reviews/settings",
             }
             if self.path not in allowed:
                 self._json(404, {"error": "Not found"})
@@ -2153,33 +2734,26 @@ def create_server(
                     })
                     return
                 if self.path == "/api/reviews":
-                    if set(payload) - {"review_focus"}:
-                        raise ValueError("Provide only review_focus when creating a review")
+                    if set(payload) - {"review_focus", "review_modes"}:
+                        raise ValueError(
+                            "Provide only review_modes and review_focus when creating a review"
+                        )
+                    configuration = normalize_review_configuration(
+                        payload.get("review_modes"), payload.get("review_focus"),
+                    )
+                    review_modes = configuration["review_modes"]
                     repository_path = self.server.repository_path
                     if repository_path is None:
                         raise ValueError("Configure a Git repository before creating a review")
                     repository_path = validate_repository_root(repository_path)
-                    review_focus = payload.get("review_focus")
-                    if review_focus is None:
-                        focus = DEFAULT_FOCUS
-                    else:
-                        if (not isinstance(review_focus, dict)
-                                or set(review_focus) != {"criteria", "custom_text"}):
-                            raise ValueError(
-                                "review_focus must contain criteria and custom_text"
-                            )
-                        focus = format_review_focus(
-                            review_focus["criteria"], review_focus["custom_text"],
-                        )
-                        if len(focus) > MAX_FOCUS_LENGTH:
-                            raise ValueError(
-                                "combined review focus must be no longer than 6000 characters"
-                            )
                     review_id = create_review_id()
                     created_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
                     workspace_path = review_directory(self.server.data_directory, review_id)
                     initialize_workspace(
-                        repository_path, workspace_path, focus,
+                        repository_path, workspace_path, configuration["focus"],
+                        golden_feature_aspects=configuration["golden_feature_aspects"],
+                        review_modes=review_modes,
+                        review_focus_settings=configuration["review_focus_settings"],
                         review_id=review_id, created_at=created_at,
                     )
                     workspace_path = validate_workspace(workspace_path)
@@ -2193,6 +2767,33 @@ def create_server(
                     self._json(201, {
                         **data, "review_id": review_id, "created_at": created_at,
                     })
+                    return
+                if self.path == "/api/reviews/settings":
+                    if set(payload) != {"review_focus", "review_modes"}:
+                        raise ValueError("Provide only review_modes and review_focus")
+                    configuration = normalize_review_configuration(
+                        payload.get("review_modes"), payload.get("review_focus"),
+                    )
+                    if configuration["review_focus_settings"] is None:
+                        raise ValueError("review_focus settings are required")
+                    with self.server.state_lock:
+                        workspace_path = self.server.active_workspace
+                        if workspace_path is None:
+                            raise NoActiveWorkspace(
+                                "No active workspace. Open a review or create one first."
+                            )
+                        current_job = self.server.jobs.get(self.server.current_job_id)
+                        if (current_job and current_job["workspace"] == str(workspace_path)
+                                and current_job["status"] in {"queued", "running"}):
+                            raise RuntimeError(
+                                "Cannot change review settings while an audit is running"
+                            )
+                        update_workspace_review_configuration(
+                            workspace_path,
+                            configuration["review_modes"],
+                            payload["review_focus"],
+                        )
+                    self._json(200, _data(workspace_path))
                     return
                 if self.path == "/api/reviews/open":
                     if set(payload) != {"id"}:
@@ -2259,25 +2860,39 @@ def create_server(
                 if self.path == "/api/workspace/init":
                     repo_path = _path_from_input(payload.get("repo"), self.server.starting_directory, "repo")
                     output_path = _path_from_input(payload.get("out"), self.server.starting_directory, "out")
+                    review_modes = normalize_review_modes(payload.get("review_modes"))
+                    golden_feature_aspects = []
                     if "review_focus" in payload:
                         if "focus" in payload:
                             raise ValueError("Use either review_focus or focus, not both")
                         review_focus = payload["review_focus"]
+                        required_focus_keys = {"criteria", "custom_text"}
+                        allowed_focus_keys = required_focus_keys | {"golden_feature_aspects"}
                         if (not isinstance(review_focus, dict)
-                                or set(review_focus) != {"criteria", "custom_text"}):
+                                or not required_focus_keys.issubset(review_focus)
+                                or set(review_focus) - allowed_focus_keys):
                             raise ValueError(
-                                "review_focus must contain criteria and custom_text"
+                                "review_focus must contain criteria and custom_text; "
+                                "golden_feature_aspects is optional"
                             )
                         focus = format_review_focus(
                             review_focus["criteria"], review_focus["custom_text"],
                         )
+                        golden_feature_aspects = review_focus.get(
+                            "golden_feature_aspects", [],
+                        )
+                        format_golden_feature_direction(golden_feature_aspects)
                         if len(focus) > MAX_FOCUS_LENGTH:
                             raise ValueError("combined review focus must be no longer than 6000 characters")
                     else:
                         focus = payload.get("focus", DEFAULT_FOCUS)
                         if not isinstance(focus, str) or len(focus) > 4000:
                             raise ValueError("focus must be text no longer than 4000 characters")
-                    initialize_workspace(repo_path, output_path, focus)
+                    initialize_workspace(
+                        repo_path, output_path, focus,
+                        golden_feature_aspects=golden_feature_aspects,
+                        review_modes=review_modes,
+                    )
                     workspace_path = validate_workspace(output_path)
                     with self.server.state_lock:
                         self.server.active_workspace = workspace_path
@@ -2304,6 +2919,8 @@ def create_server(
                         model_name = entry.get("model")
                         if not isinstance(model_name, str) or not model_name.strip():
                             raise ValueError("Each enabled model must specify a LiteLLM model name")
+                        provider_preferences(entry)
+                        reasoning_preferences(entry)
                         if model_id in available:
                             raise ValueError("Model IDs must be unique")
                         available[model_id] = entry
@@ -2345,7 +2962,9 @@ def create_server(
                         raise ValueError("Report content must be text")
                     manifest = load_json(workspace_path / "manifest.json")
                     approved = {f["path"] for f in manifest["files"]}
-                    parsed = parse_report(content, approved)
+                    parsed = parse_report(
+                        content, approved, review_modes=manifest.get("review_modes"),
+                    )
                     validate_locations(parsed, workspace_path / "snapshot")
                     parsed["audit_metadata"] = {"model_id": model, "source": "manual"}
                     save_json(workspace_path / "reports" / f"{model}.json", parsed)
@@ -2354,13 +2973,30 @@ def create_server(
                         raise ValueError("Unknown model")
                     path = workspace_path / "judgments" / f"{model}.json"
                     decision = load_json(path) if path.exists() else {"findings": {}, "rubric": {}}
+                    modes = normalize_review_modes(
+                        load_json(workspace_path / "manifest.json").get("review_modes"),
+                    )
                     if self.path == "/api/rubric":
-                        scores = {key: payload[key] for key in ("improvements", "gold", "rigor")}
-                        for key, maximum in (("improvements", 15), ("gold", 20), ("rigor", 5)):
-                            if type(scores[key]) is not int or not 0 <= scores[key] <= maximum:
+                        rubric_fields = rubric_fields_for_modes(modes)
+                        maxima = {"improvements": 20, "gold": 20}
+                        scores = {key: payload.get(key) for key in rubric_fields}
+                        for key, score in scores.items():
+                            maximum = maxima[key]
+                            if type(score) is not int or not 0 <= score <= maximum:
                                 raise ValueError(f"Invalid {key} score")
-                        decision["rubric"] = scores
+                        existing_rubric = decision.get("rubric", {})
+                        if not isinstance(existing_rubric, dict):
+                            raise ValueError("Invalid rubric data")
+                        decision["rubric"] = {
+                            key: value for key, value in existing_rubric.items()
+                            if key in rubric_fields
+                        }
+                        decision["rubric"].update(scores)
                     else:
+                        if "code_audit" not in modes:
+                            raise ValueError(
+                                "Findings can only be adjudicated for code_audit reviews"
+                            )
                         finding = payload.get("finding")
                         if finding not in {item["id"] for item in reports[model]["findings"]}:
                             raise ValueError("Unknown finding")

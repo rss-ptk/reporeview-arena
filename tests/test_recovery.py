@@ -169,7 +169,7 @@ async def test_nonretryable_provider_errors_have_safe_diagnostics(workspace, del
     ('{"raw":"LOCAL_REPORT_PAYLOAD"', "stop", "json"),
     ('{"findings":[],"summary":"LOCAL_REPORT_PAYLOAD"}', "stop", "schema"),
     ("", "stop", "empty"),
-    (report(), "length", "truncat"),
+    ('{"findings": [', "length", "truncat"),
     (report(file="../LOCAL_REPORT_PAYLOAD.py"), "stop", "file"),
     (report(line=999), "stop", "line"),
 ])
@@ -196,6 +196,38 @@ async def test_invalid_reports_are_saved_locally_without_repair_or_relaxed_valid
     printed = capsys.readouterr()
     assert result["error"] in printed.out
     assert "LOCAL_REPORT_PAYLOAD" not in printed.out + printed.err + json.dumps(result)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("structured", [False, True])
+async def test_tool_calls_after_budget_are_diagnosed_and_saved(workspace, structured):
+    tool = SimpleNamespace(id="call-1", function=SimpleNamespace(
+        name="read_file", arguments='{"path":"main.py"}'))
+    first = reply("")
+    first.choices[0].message.tool_calls = [tool]
+    final = reply("" if structured else (
+        "<tool_call><function=read_file><parameter=path>main.py</parameter>"
+        "</function></tool_call>"
+    ))
+    if structured:
+        final.choices[0].message.tool_calls = [tool]
+    completion = CompletionScript(first, final)
+
+    result, = await audit_many(workspace, [MODEL], completion=completion, max_steps=1)
+
+    # Structured tool calls on the final call (tool_choice "none" ignored) get exactly
+    # one more request without tools; text-form calls are not retried.
+    assert len(completion.calls) == (3 if structured else 2)
+    assert completion.calls[1]["tool_choice"] == "none"
+    if structured:
+        assert "tools" not in completion.calls[2]
+    assert "tool" in result["error"].lower()
+    assert "budget" in result["error"].lower()
+    artifact = json.loads((workspace / result["failure_file"]).read_text(encoding="utf-8"))
+    assert artifact["raw_response"] == final.choices[0].message.content
+    if structured:
+        assert artifact["tool_calls"][0]["function"]["arguments"] == '{"path":"main.py"}'
+    assert not (workspace / "reports" / "mock.json").exists()
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,9 @@
     {"id": "gemini", "model": "gemini/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null},
     {"id": "mistral", "model": "mistral/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null},
     {"id": "grok", "model": "xai/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null},
-    {"id": "glm", "model": "openrouter/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null},
+    {"id": "glm", "model": "openrouter/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null,
+     "provider": {"sort": "price", "quantizations": ["fp8", "bf16", "fp16"], "max_price": {"prompt": 1, "completion": 4}},
+     "reasoning": {"effort": "low"}},
     {"id": "qwen", "model": "openrouter/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null},
     {"id": "kimi", "model": "openrouter/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null},
     {"id": "mimo", "model": "openrouter/REPLACE_WITH_AVAILABLE_MODEL", "max_tokens": null}

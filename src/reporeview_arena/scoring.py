@@ -4,10 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
+from .modes import normalize_review_modes, rubric_fields_for_modes
+
 WEIGHTS = {"P0": 20, "P1": 10, "P2": 4, "P3": 1}
 
 
-def calculate(report: dict[str, Any], judgment: dict[str, Any]) -> dict[str, Any]:
+class InvalidJudgmentSeverity(ValueError):
+    """Raised when a saved judgment uses a severity outside the scoring rubric."""
+
+
+def calculate(
+    report: dict[str, Any], judgment: dict[str, Any], review_modes: object = None,
+) -> dict[str, Any]:
+    fields = set(rubric_fields_for_modes(review_modes))
+    audit_enabled = "improvements" in fields
     adjudications = judgment.get("findings", {})
     bugs = 0
     penalty = 0
@@ -15,7 +25,7 @@ def calculate(report: dict[str, Any], judgment: dict[str, Any]) -> dict[str, Any
     accepted = 0
     rejected = 0
     pending = 0
-    for finding in report["findings"]:
+    for finding in (report["findings"] if audit_enabled else []):
         decision = adjudications.get(finding["id"], {})
         verdict = decision.get("verdict", "pending")
         if verdict == "confirmed":
@@ -23,6 +33,11 @@ def calculate(report: dict[str, Any], judgment: dict[str, Any]) -> dict[str, Any
             issue = str(decision.get("issue_key") or finding["id"])
             if issue not in rewarded_issues:
                 severity = decision.get("severity", finding["severity"])
+                if not isinstance(severity, str) or severity not in WEIGHTS:
+                    raise InvalidJudgmentSeverity(
+                        f"Invalid judgment severity for finding {finding['id']}; "
+                        "expected P0, P1, P2 or P3"
+                    )
                 bugs += WEIGHTS[severity]
                 rewarded_issues.add(issue)
             accepted += 1
@@ -33,22 +48,74 @@ def calculate(report: dict[str, Any], judgment: dict[str, Any]) -> dict[str, Any
             pending += 1
     bugs = min(bugs, 60)
     rubric = judgment.get("rubric", {})
-    improvements = min(max(int(rubric.get("improvements", 0)), 0), 15)
-    gold = min(max(int(rubric.get("gold", 0)), 0), 20)
-    rigor = min(max(int(rubric.get("rigor", 0)), 0), 5)
-    total = max(0, min(100, bugs + improvements + gold + rigor - penalty))
+    improvements = (
+        min(max(int(rubric.get("improvements", 0)), 0), 20)
+        if "improvements" in fields else 0
+    )
+    gold = min(max(int(rubric.get("gold", 0)), 0), 20) if "gold" in fields else 0
+    total = max(0, min(100, bugs + improvements + gold - penalty))
     return {
-        "bugs": bugs, "improvements": improvements, "gold": gold, "rigor": rigor,
+        "bugs": bugs, "improvements": improvements, "gold": gold,
         "penalty": penalty, "total": total, "confirmed": accepted,
         "false_positives": rejected, "pending": pending,
     }
 
 
-def leaderboard(reports: dict[str, dict], judgments: dict[str, dict]) -> list[dict]:
+def leaderboard(
+    reports: dict[str, dict], judgments: dict[str, dict], review_modes: object = None,
+) -> list[dict]:
     rows = [
-        {"model": name, **calculate(report, judgments.get(name, {})),
+        {"model": name, **calculate(report, judgments.get(name, {}), review_modes),
          "findings": len(report["findings"]),
-         "golden_feature": report["golden_feature"]["name"]}
+         "golden_feature": (report.get("golden_feature") or {}).get("name", "")}
         for name, report in reports.items()
     ]
     return sorted(rows, key=lambda x: (-x["total"], -x["confirmed"], x["model"]))
+
+
+def leaderboards(
+    reports: dict[str, dict],
+    judgments: dict[str, dict],
+    review_modes: object = None,
+) -> dict[str, list[dict]]:
+    """Return independent rankings for only the deliverables selected by a review."""
+
+    modes = normalize_review_modes(review_modes)
+    boards: dict[str, list[dict]] = {"code_audit": [], "golden_feature": []}
+    if "code_audit" in modes:
+        audit_rows = []
+        for model, report in reports.items():
+            score = calculate(report, judgments.get(model, {}), modes)
+            total = max(0, min(
+                80, score["bugs"] + score["improvements"] - score["penalty"],
+            ))
+            audit_rows.append({
+                "model": model,
+                "bugs": score["bugs"],
+                "improvements": score["improvements"],
+                "penalty": score["penalty"],
+                "total": total,
+                "confirmed": score["confirmed"],
+                "false_positives": score["false_positives"],
+                "pending": score["pending"],
+                "findings": len(report.get("findings", [])),
+            })
+        boards["code_audit"] = sorted(
+            audit_rows, key=lambda row: (-row["total"], -row["confirmed"], row["model"]),
+        )
+    if "golden_feature" in modes:
+        feature_rows = []
+        for model, report in reports.items():
+            rubric = judgments.get(model, {}).get("rubric", {})
+            gold = min(max(int(rubric.get("gold", 0)), 0), 20)
+            feature = report.get("golden_feature") or {}
+            feature_rows.append({
+                "model": model,
+                "gold": gold,
+                "total": gold,
+                "golden_feature": feature.get("name", ""),
+            })
+        boards["golden_feature"] = sorted(
+            feature_rows, key=lambda row: (-row["total"], row["model"]),
+        )
+    return boards

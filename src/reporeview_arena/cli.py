@@ -9,9 +9,11 @@ import sys
 from pathlib import Path
 
 from .app import _data, serve
-from .orchestrator import audit_many, model_slug
+from .modes import rubric_fields_for_modes
+from .orchestrator import audit_many, model_slug, provider_preferences, reasoning_preferences
 from .reports import parse_report, validate_locations
 from .storage import load_json, save_json
+from .usage import read_usage
 from .workspace import DEFAULT_FOCUS, initialize_workspace
 
 
@@ -61,6 +63,9 @@ def parser() -> argparse.ArgumentParser:
     web.add_argument("--port", type=int, default=8765)
     score = command.add_parser("score", help="Output current validated scorecard as JSON")
     score.add_argument("--workspace", required=True, type=Path)
+    usage = command.add_parser("usage", help="Show recorded usage and cost as JSON")
+    usage.add_argument("--workspace", required=True, type=Path)
+    usage.add_argument("--run-id", help="Filter by execution ID")
     prompt = command.add_parser("prompt", help="Show generated prompt for pasting into an IDE")
     prompt.add_argument("--workspace", required=True, type=Path)
     judge = command.add_parser("judge", help="Adjudicate one finding on the CLI")
@@ -71,12 +76,11 @@ def parser() -> argparse.ArgumentParser:
     judge.add_argument("--severity", choices=["P0", "P1", "P2", "P3"])
     judge.add_argument("--issue-key", default="")
     judge.add_argument("--fabricated-evidence", action="store_true")
-    rubric = command.add_parser("rubric", help="Set human-rated improvements, gold and rigor scores")
+    rubric = command.add_parser("rubric", help="Set human-rated improvements and gold scores")
     rubric.add_argument("--workspace", required=True, type=Path)
     rubric.add_argument("--model", required=True)
-    rubric.add_argument("--improvements", type=int, required=True)
-    rubric.add_argument("--gold", type=int, required=True)
-    rubric.add_argument("--rigor", type=int, required=True)
+    rubric.add_argument("--improvements", type=int)
+    rubric.add_argument("--gold", type=int)
     return root
 
 
@@ -102,6 +106,8 @@ def execute(args: argparse.Namespace) -> None:
         raise ValueError("Workspace not initialized; run 'reporeview init' first")
     if args.command == "prompt":
         print((workspace / "prompt.md").read_text(encoding="utf-8"))
+    elif args.command == "usage":
+        print(json.dumps(read_usage(workspace, args.run_id), indent=2))
     elif args.command == "run":
         if not args.confirm_send_code:
             raise ValueError("Sending source requires --confirm-send-code")
@@ -116,6 +122,8 @@ def execute(args: argparse.Namespace) -> None:
             model_slug(m["id"])
             if not m.get("model"):
                 raise ValueError("Each model must specify its LiteLLM model name")
+            provider_preferences(m)
+            reasoning_preferences(m)
             if (workspace / "reports" / f"{m['id']}.json").exists():
                 raise ValueError(f"Refusing to overwrite an existing audit: {m['id']}")
         _load_provider_environment()
@@ -135,7 +143,8 @@ def execute(args: argparse.Namespace) -> None:
             raise ValueError("A report for this model already exists")
         manifest = load_json(workspace / "manifest.json")
         report = parse_report(args.file.read_text(encoding="utf-8"),
-                              {f["path"] for f in manifest["files"]})
+                              {f["path"] for f in manifest["files"]},
+                              review_modes=manifest.get("review_modes"))
         validate_locations(report, workspace / "snapshot")
         report["audit_metadata"] = {"model_id": model_id, "source": "manual",
                                      "commit": manifest["commit"]}
@@ -145,12 +154,17 @@ def execute(args: argparse.Namespace) -> None:
         print(json.dumps(_data(workspace)["leaderboard"], indent=2))
     elif args.command in ("judge", "rubric"):
         model_id = model_slug(args.model)
-        report = _data(workspace)["reports"].get(model_id)
+        data = _data(workspace)
+        report = data["reports"].get(model_id)
         if report is None:
             raise ValueError("No report for this model")
         path = workspace / "judgments" / f"{model_id}.json"
         decision = load_json(path) if path.exists() else {"findings": {}, "rubric": {}}
         if args.command == "judge":
+            if "code_audit" not in data["review_modes"]:
+                raise ValueError(
+                    "Findings can only be adjudicated for code_audit reviews"
+                )
             matches = [f for f in report["findings"] if f["id"] == args.finding]
             if not matches:
                 raise ValueError("Unknown finding ID")
@@ -161,11 +175,35 @@ def execute(args: argparse.Namespace) -> None:
                 "issue_key": args.issue_key, "fabricated_evidence": args.fabricated_evidence,
             }
         else:
-            for value, maximum in ((args.improvements, 15), (args.gold, 20), (args.rigor, 5)):
+            maxima = {"improvements": 20, "gold": 20}
+            rubric_fields = rubric_fields_for_modes(data["review_modes"])
+            provided = {field: getattr(args, field) for field in maxima}
+            unexpected = sorted(
+                field for field, value in provided.items()
+                if value is not None and field not in rubric_fields
+            )
+            if unexpected:
+                raise ValueError(
+                    "Rubric fields not selected for this review: " + ", ".join(unexpected)
+                )
+            missing = [field for field in rubric_fields if provided[field] is None]
+            if missing:
+                raise ValueError(
+                    "Missing rubric scores for selected fields: " + ", ".join(missing)
+                )
+            scores = {field: provided[field] for field in rubric_fields}
+            for field, value in scores.items():
+                maximum = maxima[field]
                 if not 0 <= value <= maximum:
                     raise ValueError("Rubric scores outside allowed range")
-            decision["rubric"] = {"improvements": args.improvements, "gold": args.gold,
-                                  "rigor": args.rigor}
+            existing_rubric = decision.get("rubric", {})
+            if not isinstance(existing_rubric, dict):
+                raise ValueError("Invalid rubric data")
+            decision["rubric"] = {
+                field: value for field, value in existing_rubric.items()
+                if field in rubric_fields
+            }
+            decision["rubric"].update(scores)
         save_json(path, decision)
         print("Judgment saved")
 
