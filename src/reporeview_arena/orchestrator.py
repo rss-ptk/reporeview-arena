@@ -40,6 +40,11 @@ TOOLS = [
     }},
 ]
 
+# Serialized-history budget (~4 chars/token: ~58k / ~35k tokens). Trimming with
+# hysteresis keeps the request append-only for several rounds between cuts.
+HISTORY_MAX_CHARS = 250_000
+HISTORY_TRIM_TO_CHARS = 150_000
+
 
 def model_slug(name: str) -> str:
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", name):
@@ -250,6 +255,25 @@ def _execute_tool(reader: RepositoryReader, name: str, args: dict[str, Any]) -> 
     return "ERROR: unknown tool"
 
 
+def _trim_history(base: list[dict[str, Any]], batches: list[list[dict[str, Any]]],
+                  max_chars: int, trim_to: int) -> None:
+    """Drop the oldest complete tool rounds in one block once max_chars is exceeded.
+
+    Popping one round per step changed the message right after the prompt on almost
+    every call, defeating provider prefix caches. Cutting down to trim_to keeps the
+    history append-only until the cap is reached again. Whole assistant/tool groups
+    are removed, so the tool-call protocol stays valid.
+    """
+    def size() -> int:
+        return len(json.dumps(base + [part for batch in batches for part in batch]))
+    if size() <= max_chars:
+        return
+    while len(batches) > 1 and size() > trim_to:  # keep the newest round if possible
+        batches.pop(0)
+    while batches and size() > max_chars:  # same hard cap as before
+        batches.pop(0)
+
+
 async def audit_one(
     workspace: Path, model: dict[str, Any], *, max_steps: int = 35,
     timeout: int = 120, retries: int = 2, retry_delay: float = 5, completion=None,
@@ -307,12 +331,9 @@ async def audit_one(
     base_messages = list(messages)
     batches: list[list[dict[str, Any]]] = []
     for step in range(max_steps + 1):
-        # Truncate old complete tool rounds before hitting the model context limit.
-        # Keep entire assistant/tool-call groups intact to preserve valid tool protocol.
+        # Truncate old complete tool rounds in blocks before hitting the context limit.
+        _trim_history(base_messages, batches, HISTORY_MAX_CHARS, HISTORY_TRIM_TO_CHARS)
         messages = base_messages + [part for batch in batches for part in batch]
-        while batches and len(json.dumps(messages)) > 250_000:
-            batches.pop(0)
-            messages = base_messages + [part for batch in batches for part in batch]
         final = step == max_steps
         if final:
             messages.append({"role": "user", "content": "Tool budget exhausted. Produce your complete single JSON report now with only verified citations; list unexamined areas in limitations. No more tools."})

@@ -12,8 +12,10 @@ from reporeview_arena.modes import (
     normalize_review_modes,
     rubric_fields_for_modes,
 )
+from reporeview_arena import orchestrator
 from reporeview_arena.orchestrator import (
     _execute_tool,
+    _trim_history,
     audit_many,
     audit_one,
     model_slug,
@@ -455,6 +457,70 @@ async def test_tool_round_budget_keeps_request_prefix_stable(competition):
     assert "tools" in calls[0] and "tools" in calls[1]
     assert "tools" not in calls[2]
     assert "No more tools" in calls[2]["messages"][-1]["content"]
+
+
+def test_trim_history_cuts_in_one_block():
+    def rounds(n, chars=1_000):
+        return [[{"role": "assistant", "content": f"{i}" + "x" * chars}] for i in range(n)]
+
+    def size(base, batches):
+        return len(json.dumps(base + [part for batch in batches for part in batch]))
+
+    base = [{"role": "system", "content": "s"}]
+    # At or below the cap nothing is dropped.
+    batches = rounds(5)
+    _trim_history(base, batches, size(base, batches), 0)
+    assert len(batches) == 5
+    # Above the cap the oldest rounds go in one block, down to trim_to.
+    batches = rounds(10)
+    original = list(batches)
+    _trim_history(base, batches, 8_000, 4_000)
+    assert size(base, batches) <= 4_000
+    assert batches == original[-len(batches):]
+    assert size(base, original[-len(batches) - 1:]) > 4_000  # cut no deeper than needed
+    # The newest round is dropped only when it alone breaks the hard cap.
+    batches = rounds(2, chars=10_000)
+    _trim_history(base, batches, 5_000, 2_000)
+    assert batches == []
+    # A prompt larger than trim_to still keeps the round the model just requested.
+    big_base = [{"role": "user", "content": "p" * 5_000}]
+    batches = rounds(3)
+    newest = batches[-1]
+    _trim_history(big_base, batches, 7_000, 4_000)
+    assert batches == [newest]
+
+
+@pytest.mark.asyncio
+async def test_history_trim_keeps_prefix_stable_between_cuts(competition, monkeypatch):
+    _, workspace, _ = competition
+    calls = []
+    max_steps = 20
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        if len(calls) <= max_steps:
+            tool = SimpleNamespace(id=f"t{len(calls)}", function=SimpleNamespace(
+                name="read_file", arguments='{"path":"main.py"}'))
+            message = SimpleNamespace(content="x" * 20_000, tool_calls=[tool])
+        else:
+            message = SimpleNamespace(content=json.dumps(sample_report()), tool_calls=[])
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None)
+
+    # Each round is ~20k chars: the cap fits ~5 rounds and a cut leaves ~2.
+    base_chars = len(json.dumps((workspace / "prompt.md").read_text(encoding="utf-8"))) + 1_000
+    monkeypatch.setattr(orchestrator, "HISTORY_MAX_CHARS", base_chars + 105_000)
+    monkeypatch.setattr(orchestrator, "HISTORY_TRIM_TO_CHARS", base_chars + 45_000)
+    await audit_one(workspace, {"id": "mock", "model": "test/mock"},
+                    max_steps=max_steps, completion=completion)
+
+    assert len(calls) == max_steps + 1
+    for call in calls:
+        history = call["messages"][:-1] if "tools" not in call else call["messages"]
+        assert len(json.dumps(history)) <= orchestrator.HISTORY_MAX_CHARS
+    breaks = sum(after["messages"][:len(before["messages"])] != before["messages"]
+                 for before, after in zip(calls, calls[1:]))
+    # Popping one round per step broke the prefix on ~15 of these 20 transitions.
+    assert 2 <= breaks <= max_steps // 3
 
 
 @pytest.mark.asyncio
