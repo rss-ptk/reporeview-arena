@@ -29,7 +29,7 @@ def rubric_fields_for_modes(review_modes: object = None) -> tuple[str, ...]:
     modes = normalize_review_modes(review_modes)
     fields: list[str] = []
     if "code_audit" in modes:
-        fields.extend(("improvements", "rigor"))
+        fields.append("improvements")
     if "golden_feature" in modes:
         fields.append("gold")
     return tuple(fields)

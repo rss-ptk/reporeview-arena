@@ -215,7 +215,7 @@ model {
         technology 'src/reporeview_arena/reports.py (parse_report, validate_locations)'
       }
       scorer = module 'Scorer' {
-        description 'Keeps the existing combined score for CLI compatibility and computes separate Control Page leaderboards: code audit uses confirmed findings (up to 60), improvements /15 and rigor /5 with false-positive penalties; Golden Feature uses its human score /20.'
+        description 'Computes the combined score and separate Control Page leaderboards: code audit uses confirmed findings (up to 60) and improvements /20 with false-positive penalties; Golden Feature uses its human score /20.'
         technology 'src/reporeview_arena/scoring.py (calculate, leaderboard, leaderboards)'
       }
       storage = module 'JSON storage' {
@@ -270,7 +270,7 @@ model {
         technology 'workspace/reports/<model-id>.json'
       }
       judgments = artifact 'judgments/' {
-        description 'Human verdict, severity, issue key and fabricated-evidence flag per finding, plus the improvements, gold and rigor rubric. Rewritten in place by judge, rubric and the dashboard.'
+        description 'Human verdict, severity, issue key and fabricated-evidence flag per finding, plus the improvements and gold rubric. Rewritten in place by judge, rubric and the dashboard.'
         technology 'workspace/judgments/<model-id>.json'
       }
       failures = artifact 'failures/' {

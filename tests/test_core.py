@@ -7,7 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from reporeview_arena.modes import DEFAULT_REVIEW_MODES, normalize_review_modes
+from reporeview_arena.modes import (
+    DEFAULT_REVIEW_MODES,
+    normalize_review_modes,
+    rubric_fields_for_modes,
+)
 from reporeview_arena.orchestrator import _execute_tool, audit_many, audit_one, model_slug
 from reporeview_arena.prompts import build_prompt
 from reporeview_arena.reports import parse_report, validate_locations
@@ -124,7 +128,10 @@ def test_reports_and_scorecard(competition):
     }, "rubric": {"improvements": 12, "gold": 15, "rigor": 4}}
     result = calculate(report, judgments)
     assert result["bugs"] == 20
-    assert result["total"] == 51
+    assert result["improvements"] == 12
+    assert result["gold"] == 15
+    assert "rigor" not in result
+    assert result["total"] == 47
     assert result["confirmed"] == 2
     judgment2 = {"findings": {"F-1": {"verdict": "false_positive"}}}
     assert calculate(report, judgment2)["total"] == 0
@@ -142,6 +149,14 @@ def test_review_modes_default_to_both_and_reject_empty_or_unknown_modes():
         normalize_review_modes([])
     with pytest.raises(ValueError, match="unknown"):
         normalize_review_modes(["code_audit", "other"])
+
+
+def test_rubric_fields_only_include_improvements_and_golden_feature():
+    assert rubric_fields_for_modes(["code_audit"]) == ("improvements",)
+    assert rubric_fields_for_modes(["golden_feature"]) == ("gold",)
+    assert rubric_fields_for_modes(["code_audit", "golden_feature"]) == (
+        "improvements", "gold",
+    )
 
 
 def test_report_schema_requires_only_selected_deliverables():
@@ -180,7 +195,7 @@ def test_mode_specific_leaderboards_score_audit_and_feature_separately():
                 "F-1": {"verdict": "confirmed", "issue_key": "SAME", "severity": "P0"},
                 "F-2": {"verdict": "confirmed", "issue_key": "SAME", "severity": "P1"},
             },
-            "rubric": {"improvements": 12, "gold": 1, "rigor": 4},
+            "rubric": {"improvements": 20, "gold": 1, "rigor": 4},
         },
         "beta": {"rubric": {"gold": 18}},
     }
@@ -189,9 +204,34 @@ def test_mode_specific_leaderboards_score_audit_and_feature_separately():
         ["code_audit", "golden_feature"],
     )
     assert boards["code_audit"][0]["model"] == "alpha"
-    assert boards["code_audit"][0]["total"] == 36
+    assert boards["code_audit"][0]["total"] == 40
+    assert "rigor" not in boards["code_audit"][0]
     assert boards["golden_feature"][0]["model"] == "beta"
     assert boards["golden_feature"][0]["total"] == 18
+
+    maximum_report = sample_report()
+    finding_template = maximum_report["findings"][0]
+    maximum_report["findings"] = [
+        {**finding_template, "id": f"F-{index}"} for index in range(4)
+    ]
+    maximum_judgment = {
+        "findings": {
+            f"F-{index}": {
+                "verdict": "confirmed", "issue_key": f"ISSUE-{index}",
+                "severity": "P0",
+            }
+            for index in range(4)
+        },
+        "rubric": {"improvements": 20, "gold": 20, "rigor": 5},
+    }
+    maximum_score = calculate(maximum_report, maximum_judgment)
+    assert maximum_score["total"] == 100
+    maximum_boards = leaderboards(
+        {"maximum": maximum_report}, {"maximum": maximum_judgment},
+        ["code_audit", "golden_feature"],
+    )
+    assert maximum_boards["code_audit"][0]["total"] == 80
+    assert maximum_boards["golden_feature"][0]["total"] == 20
 
 
 def test_reject_invalid_ids_and_json():

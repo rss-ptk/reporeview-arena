@@ -153,27 +153,26 @@ CLI equivalents:
 
 ```bash
 reporeview judge --workspace ./arenas/project-2026 --model claude --finding FS-AUD-001 --verdict confirmed --severity P1 --issue-key EDGE-001
-reporeview rubric --workspace ./arenas/project-2026 --model claude --improvements 12 --gold 17 --rigor 4
+reporeview rubric --workspace ./arenas/project-2026 --model claude --improvements 16 --gold 17
 reporeview score --workspace ./arenas/project-2026
 ```
 
 Verdicts: `pending`, `confirmed`, `false_positive`. When a model reports multiple symptoms of the same root cause, assign the same `--issue-key` to count only once **within that model**. The same valid finding discovered independently by several models earns points for each of those models. Severity is set by the adjudicator, and false positives cost points regardless of their original severity.
 
-The `rubric` command requires only the flags for the workspace's selected modes: `--improvements` and `--rigor` for Code audit, and `--gold` for Golden Feature. It rejects scores for unselected modes. `judge` is available only when Code audit is selected. Workspaces without `review_modes` retain the legacy default of both modes.
+The `rubric` command requires only the flags for the workspace's selected modes: `--improvements` for Code audit (0-20), and `--gold` for Golden Feature (0-20). It rejects scores for unselected modes. `judge` is available only when Code audit is selected. Workspaces without `review_modes` retain the legacy default of both modes.
 
 ### Scoring (100 points)
 
 | Category | Maximum | Rules |
 | --- | ---: | --- |
 | Confirmed bugs | 60 | P0: 20, P1: 10, P2: 4, P3: 1 |
-| General improvements | 15 | Human-assessed |
+| General improvements | 20 | Human-assessed |
 | Golden feature | 20 | Human-assessed: value, falsifiable test, novelty, feasibility |
-| Rigor and coverage | 5 | Human-assessed |
 | False positives | Penalty | -5 each; -10 when evidence is knowingly fabricated |
 
 Totals are clamped to the interval [0, 100]. A model's output does not prove its own findings. Until validated, zero points are assigned for its reported defects. This prevents raw finding count from deciding the competition.
 
-The Control Page presents two independent rankings instead of combining these categories: code audit ranks confirmed bugs, general improvements, and rigor (up to 80 points, less false-positive penalties); Golden Feature ranks the proposal score (up to 20 points). The CLI combines selected categories, so its legacy 100-point score remains available when both modes are selected.
+The Control Page presents two independent rankings instead of combining these categories: code audit ranks confirmed bugs and general improvements (up to 80 points, less false-positive penalties); Golden Feature ranks the proposal score (up to 20 points). The CLI combines selected categories, so its 100-point score remains available when both modes are selected. Existing saved Rigor scores are ignored and are not transferred to Improvements; old judgment files are left untouched until scores are saved again.
 
 Golden feature evaluation should require an actual gap check, implementation path, testable value hypothesis, and transparent limitations. Demonstrated value should outperform unsupported projections.
 

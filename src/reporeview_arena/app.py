@@ -156,7 +156,7 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 <p id="abstract" class="muted"></p>
 <section id="gold-feature-result"><h3 data-i18n="goldenFeature">Golden Feature</h3><div id="gold"></div></section>
 <section id="audit-rubric-fields"><h3 style="margin-top:22px" data-i18n="rubricScores">Rubric scores</h3>
-<div class="formrow"><div><label for="improvements" data-i18n="improvements15">Improvements /15</label><input type="number" id="improvements" min="0" max="15"></div><div><label for="rigor" data-i18n="rigor5">Rigor /5</label><input type="number" id="rigor" min="0" max="5"></div></div></section>
+<div class="formrow"><div><label for="improvements" data-i18n="improvements20">Improvements /20</label><input type="number" id="improvements" min="0" max="20"></div></div></section>
 <div id="gold-rubric-field" class="formrow"><div><label for="goldscore" data-i18n="gold20">Golden Feature /20</label><input type="number" id="goldscore" min="0" max="20"></div></div>
 <div class="formrow"><button id="save-rubric-button" class="primary" data-i18n="saveScores" onclick="saveRubric()">Save scores</button></div>
 <p id="rubric-save-message" class="save-feedback" role="status" aria-live="polite" aria-atomic="true"></p>
@@ -395,9 +395,8 @@ const translations = {
     model: "Model",
     goldenFeature: "Golden Feature",
     rubricScores: "Rubric scores",
-    improvements15: "Improvements /15",
+    improvements20: "Improvements /20",
     gold20: "Golden Feature /20",
-    rigor5: "Rigor /5",
     saveScores: "Save scores",
     savingFinding: "Saving finding…",
     findingSaved: "Finding {finding} saved.",
@@ -446,7 +445,6 @@ const translations = {
     bugs: "Bugs",
     improve: "Improve",
     gold: "Gold",
-    rigor: "Rigor",
     penalties: "Penalties",
     total: "Total",
     pending: "Pending",
@@ -705,9 +703,8 @@ const translations = {
     model: "Modelo",
     goldenFeature: "Golden Feature",
     rubricScores: "Notas da rubrica",
-    improvements15: "Melhorias /15",
+    improvements20: "Melhorias /20",
     gold20: "Golden Feature /20",
-    rigor5: "Rigor /5",
     saveScores: "Salvar notas",
     savingFinding: "Salvando achado…",
     findingSaved: "Achado {finding} salvo.",
@@ -756,7 +753,6 @@ const translations = {
     bugs: "Bugs",
     improve: "Melhorias",
     gold: "Destaque",
-    rigor: "Rigor",
     penalties: "Penalidades",
     total: "Total",
     pending: "Pendentes",
@@ -1409,7 +1405,7 @@ function deriveWizardState(
   const auditRunning = !!job && job.workspace === status.workspace &&
     ["queued", "running"].includes(job.status);
   const reportsReady = workspaceReady && reportIds.length > 0 && !auditRunning;
-  const rubricLimits = { improvements: 15, gold: 20, rigor: 5 };
+  const rubricLimits = { improvements: 20, gold: 20 };
   function reportFindingsReviewed(id) {
     if (!auditSelected) return true;
     const report = reports[id] || {};
@@ -1427,7 +1423,7 @@ function deriveWizardState(
     const judgment = judgments[id] || {};
     const rubric = judgment.rubric || {};
     const keys = [];
-    if (auditSelected) keys.push("improvements", "rigor");
+    if (auditSelected) keys.push("improvements");
     if (featureSelected) keys.push("gold");
     return keys.every(function (key) {
       return Number.isInteger(rubric[key]) && rubric[key] >= 0 && rubric[key] <= rubricLimits[key];
@@ -1750,7 +1746,7 @@ function renderBoard() {
   });
   const board = clear("board");
   const headings = node("tr");
-  ["rank", "model", "bugs", "improve", "rigor", "penalties",
+  ["rank", "model", "bugs", "improve", "penalties",
    "total", "pending", "tokens"].forEach(function (key) {
     headings.append(node("th", "", t(key)));
   });
@@ -1760,7 +1756,7 @@ function renderBoard() {
     const report = state.reports[row.model] || {};
     const metadata = report.audit_metadata || {};
     const tokens = (metadata.prompt_tokens || 0) + (metadata.completion_tokens || 0);
-    [index + 1, row.model, row.bugs, row.improvements, row.rigor,
+    [index + 1, row.model, row.bugs, row.improvements,
      row.penalty, row.total + "/80", row.pending, tokens].forEach(function (value, column) {
       line.append(node("td", column > 1 ? "num" : "", value));
     });
@@ -1837,7 +1833,7 @@ function showReport() {
     document.getElementById("abstract").textContent = "";
     clear("gold");
     setMessage("count", "");
-    ["improvements", "goldscore", "rigor"].forEach(function (field) {
+    ["improvements", "goldscore"].forEach(function (field) {
       document.getElementById(field).value = 0;
     });
     clear("findings");
@@ -1851,7 +1847,7 @@ function showReport() {
     gold.append(node("h3", "gold", feature.name));
     gold.append(node("p", "muted", feature.mechanism || ""));
   }
-  ["improvements", "goldscore", "rigor"].forEach(function (field) {
+  ["improvements", "goldscore"].forEach(function (field) {
     const rubricField = field === "goldscore" ? "gold" : field;
     document.getElementById(field).value =
       (judgment.rubric && judgment.rubric[rubricField]) || 0;
@@ -2156,7 +2152,7 @@ async function saveRubric() {
   const button = document.getElementById("save-rubric-button");
   const modes = state.review_modes || ["code_audit", "golden_feature"];
   const rubricFields = [];
-  if (modes.includes("code_audit")) rubricFields.push("improvements", "rigor");
+  if (modes.includes("code_audit")) rubricFields.push("improvements");
   if (modes.includes("golden_feature")) rubricFields.push("goldscore");
   const disabledControls = [document.getElementById("model"), button].concat(
     rubricFields.map(function (field) { return document.getElementById(field); }),
@@ -2261,7 +2257,7 @@ document.querySelectorAll(".wizard-back").forEach(function (button) {
 });
 document.getElementById("repo-path").addEventListener("input", updateWorkspaceActions);
 document.getElementById("review-history").addEventListener("change", updateWorkspaceActions);
-["improvements", "goldscore", "rigor"].forEach(function (id) {
+["improvements", "goldscore"].forEach(function (id) {
   document.getElementById(id).addEventListener("input", function () {
     setMessage("rubric-save-message", "");
   });
@@ -2962,7 +2958,7 @@ def create_server(
                     )
                     if self.path == "/api/rubric":
                         rubric_fields = rubric_fields_for_modes(modes)
-                        maxima = {"improvements": 15, "gold": 20, "rigor": 5}
+                        maxima = {"improvements": 20, "gold": 20}
                         scores = {key: payload.get(key) for key in rubric_fields}
                         for key, score in scores.items():
                             maximum = maxima[key]

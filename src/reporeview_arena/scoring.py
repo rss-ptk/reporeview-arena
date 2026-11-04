@@ -49,14 +49,13 @@ def calculate(
     bugs = min(bugs, 60)
     rubric = judgment.get("rubric", {})
     improvements = (
-        min(max(int(rubric.get("improvements", 0)), 0), 15)
+        min(max(int(rubric.get("improvements", 0)), 0), 20)
         if "improvements" in fields else 0
     )
     gold = min(max(int(rubric.get("gold", 0)), 0), 20) if "gold" in fields else 0
-    rigor = min(max(int(rubric.get("rigor", 0)), 0), 5) if "rigor" in fields else 0
-    total = max(0, min(100, bugs + improvements + gold + rigor - penalty))
+    total = max(0, min(100, bugs + improvements + gold - penalty))
     return {
-        "bugs": bugs, "improvements": improvements, "gold": gold, "rigor": rigor,
+        "bugs": bugs, "improvements": improvements, "gold": gold,
         "penalty": penalty, "total": total, "confirmed": accepted,
         "false_positives": rejected, "pending": pending,
     }
@@ -88,13 +87,12 @@ def leaderboards(
         for model, report in reports.items():
             score = calculate(report, judgments.get(model, {}), modes)
             total = max(0, min(
-                80, score["bugs"] + score["improvements"] + score["rigor"] - score["penalty"],
+                80, score["bugs"] + score["improvements"] - score["penalty"],
             ))
             audit_rows.append({
                 "model": model,
                 "bugs": score["bugs"],
                 "improvements": score["improvements"],
-                "rigor": score["rigor"],
                 "penalty": score["penalty"],
                 "total": total,
                 "confirmed": score["confirmed"],

@@ -76,12 +76,11 @@ def parser() -> argparse.ArgumentParser:
     judge.add_argument("--severity", choices=["P0", "P1", "P2", "P3"])
     judge.add_argument("--issue-key", default="")
     judge.add_argument("--fabricated-evidence", action="store_true")
-    rubric = command.add_parser("rubric", help="Set human-rated improvements, gold and rigor scores")
+    rubric = command.add_parser("rubric", help="Set human-rated improvements and gold scores")
     rubric.add_argument("--workspace", required=True, type=Path)
     rubric.add_argument("--model", required=True)
     rubric.add_argument("--improvements", type=int)
     rubric.add_argument("--gold", type=int)
-    rubric.add_argument("--rigor", type=int)
     return root
 
 
@@ -174,7 +173,7 @@ def execute(args: argparse.Namespace) -> None:
                 "issue_key": args.issue_key, "fabricated_evidence": args.fabricated_evidence,
             }
         else:
-            maxima = {"improvements": 15, "gold": 20, "rigor": 5}
+            maxima = {"improvements": 20, "gold": 20}
             rubric_fields = rubric_fields_for_modes(data["review_modes"])
             provided = {field: getattr(args, field) for field in maxima}
             unexpected = sorted(

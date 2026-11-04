@@ -101,6 +101,72 @@ def test_web_cli_accepts_optional_workspace_and_models():
     assert init.focus == "Review risks"
 
 
+def test_rubric_cli_accepts_improvements_twenty_and_removes_rigor(tmp_path):
+    from reporeview_arena import cli
+
+    workspace = _workspace(tmp_path / "cli-review")
+    manifest = json.loads((workspace / "manifest.json").read_text(encoding="utf-8"))
+    manifest["review_modes"] = ["code_audit"]
+    save_json(workspace / "manifest.json", manifest)
+    save_json(workspace / "reports" / "manual.json", {"findings": []})
+    save_json(
+        workspace / "judgments" / "manual.json",
+        {"findings": {}, "rubric": {"improvements": 15, "rigor": 5}},
+    )
+
+    args = cli.parser().parse_args([
+        "rubric", "--workspace", str(workspace), "--model", "manual",
+        "--improvements", "20",
+    ])
+    cli.execute(args)
+    judgment = json.loads(
+        (workspace / "judgments" / "manual.json").read_text(encoding="utf-8")
+    )
+    assert judgment["rubric"] == {"improvements": 20}
+
+    too_high = cli.parser().parse_args([
+        "rubric", "--workspace", str(workspace), "--model", "manual",
+        "--improvements", "21",
+    ])
+    with pytest.raises(ValueError, match="outside allowed range"):
+        cli.execute(too_high)
+
+    with pytest.raises(SystemExit):
+        cli.parser().parse_args([
+            "rubric", "--workspace", str(workspace), "--model", "manual",
+            "--improvements", "20", "--rigor", "4",
+        ])
+
+
+@pytest.mark.parametrize(
+    ("review_modes", "score_args", "expected_rubric"),
+    [
+        (["golden_feature"], ["--gold", "20"], {"gold": 20}),
+        (["code_audit", "golden_feature"],
+         ["--improvements", "18", "--gold", "14"],
+         {"improvements": 18, "gold": 14}),
+    ],
+)
+def test_rubric_cli_follows_selected_modes(tmp_path, review_modes, score_args, expected_rubric):
+    from reporeview_arena import cli
+
+    workspace = _workspace(tmp_path / "cli-review")
+    manifest = json.loads((workspace / "manifest.json").read_text(encoding="utf-8"))
+    manifest["review_modes"] = review_modes
+    save_json(workspace / "manifest.json", manifest)
+    save_json(workspace / "reports" / "manual.json", {"findings": []})
+    args = cli.parser().parse_args([
+        "rubric", "--workspace", str(workspace), "--model", "manual", *score_args,
+    ])
+
+    cli.execute(args)
+
+    judgment = json.loads(
+        (workspace / "judgments" / "manual.json").read_text(encoding="utf-8")
+    )
+    assert judgment["rubric"] == expected_rubric
+
+
 def test_web_cli_defaults_to_models_json_in_launch_directory(tmp_path, monkeypatch):
     from reporeview_arena import cli
 
@@ -1148,6 +1214,9 @@ def test_control_page_exposes_accessible_five_step_wizard(dashboard):
     assert 'data-wizard-panel="4"' in page
     assert 'id="partial-scores"' in page
     assert 'id="wizard-message" role="status"' in page
+    assert re.search(r'<input type="number" id="improvements" min="0" max="20">', page)
+    assert 'id="rigor"' not in page
+    assert "Rigor /5" not in page
     reports_step = re.search(
         r'data-wizard-panel="2"(.*?)data-wizard-panel="3"', page, re.S,
     )
@@ -1335,6 +1404,7 @@ function selectedReviewModes() {
 }
 let reviewSetupBaseline = null;
 let reviewSetupPending = false;
+let reviewSetupNeedsSave = false;
 """ + block.group(1) + """
 reviewSetupBaseline = reviewSetupSignature();
 const initial = reviewSetupHasUnsavedChanges();
@@ -1381,7 +1451,7 @@ console.log(JSON.stringify({
         (
             ["code_audit"],
             {"findings": []},
-            {"rubric": {"improvements": 0, "rigor": 0}},
+            {"rubric": {"improvements": 0}},
         ),
         (
             ["golden_feature"],
@@ -1448,7 +1518,7 @@ def test_manual_report_import_works_without_provider_models(dashboard, tmp_path)
         (
             "code_audit",
             {"summary": "Audit only", "findings": [], "improvements": []},
-            {"improvements": 8, "rigor": 3}, "code_audit", 11,
+            {"improvements": 20}, "code_audit", 20,
         ),
         (
             "golden_feature",
@@ -1493,6 +1563,85 @@ def test_manual_import_and_rubric_follow_selected_mode(
     assert status == 200
     assert dashboard_status["review_modes"] == [review_mode]
     assert dashboard_status["leaderboards"] == data["leaderboards"]
+
+
+def test_legacy_rigor_is_ignored_until_a_new_rubric_is_saved(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    workspace = tmp_path / "legacy-rigor-review"
+    status, _ = _request(
+        base_url, "/api/workspace/init", token=token, origin=base_url,
+        payload={"repo": str(repo), "out": str(workspace), "review_modes": ["code_audit"]},
+    )
+    assert status == 201
+
+    status, imported = _request(
+        base_url, "/api/import", token=token, origin=base_url,
+        payload={
+            "model": "manual",
+            "content": json.dumps({"summary": "Audit", "findings": [], "improvements": []}),
+        },
+    )
+    assert status == 200
+    assert imported["ok"] is True
+
+    judgment_path = workspace / "judgments" / "manual.json"
+    legacy_judgment = {"findings": {}, "rubric": {"improvements": 15, "rigor": 5}}
+    save_json(judgment_path, legacy_judgment)
+    status, data = _request(base_url, "/api/data")
+    assert status == 200
+    assert data["leaderboards"]["code_audit"][0]["total"] == 15
+    assert "rigor" not in data["leaderboards"]["code_audit"][0]
+    assert json.loads(judgment_path.read_text(encoding="utf-8")) == legacy_judgment
+
+    status, invalid = _request(
+        base_url, "/api/rubric", token=token, origin=base_url,
+        payload={"model": "manual", "improvements": 21},
+    )
+    assert status == 400
+    assert "Invalid improvements score" in invalid["error"]
+
+    status, saved = _request(
+        base_url, "/api/rubric", token=token, origin=base_url,
+        payload={"model": "manual", "improvements": 20},
+    )
+    assert status == 200
+    assert saved["ok"] is True
+    persisted = json.loads(judgment_path.read_text(encoding="utf-8"))
+    assert persisted["rubric"] == {"improvements": 20}
+
+
+def test_api_saves_both_rubric_scores_when_both_modes_are_selected(dashboard, tmp_path):
+    _, base_url, token = dashboard
+    repo = _git_repo(tmp_path / "project")
+    workspace = tmp_path / "combined-review"
+    status, _ = _request(
+        base_url, "/api/workspace/init", token=token, origin=base_url,
+        payload={"repo": str(repo), "out": str(workspace),
+                 "review_modes": ["code_audit", "golden_feature"]},
+    )
+    assert status == 201
+    report = {
+        "summary": "Combined review", "findings": [], "improvements": [],
+        "golden_feature": {"name": "New feature"},
+    }
+    status, imported = _request(
+        base_url, "/api/import", token=token, origin=base_url,
+        payload={"model": "manual", "content": json.dumps(report)},
+    )
+    assert status == 200
+    assert imported["ok"] is True
+
+    status, saved = _request(
+        base_url, "/api/rubric", token=token, origin=base_url,
+        payload={"model": "manual", "improvements": 20, "gold": 20},
+    )
+    assert status == 200
+    assert saved["ok"] is True
+    status, data = _request(base_url, "/api/data")
+    assert status == 200
+    assert data["leaderboards"]["code_audit"][0]["total"] == 20
+    assert data["leaderboards"]["golden_feature"][0]["total"] == 20
 
 
 @pytest.mark.skipif(NODE is None, reason="Node.js is not installed")
@@ -1625,7 +1774,9 @@ console.log(JSON.stringify({ready, running, unavailable}));
 def test_create_review_sends_selected_golden_feature_aspects():
     function = re.search(r"async function createReview\(\) \{.*?\n\}", app.PAGE, re.S)
     assert function, "createReview function is missing"
-    script = function.group(0) + """
+    payload_function = re.search(r"function reviewSetupPayload\(\) \{.*?\n\}", app.PAGE, re.S)
+    assert payload_function, "reviewSetupPayload function is missing"
+    script = payload_function.group(0) + "\n" + function.group(0) + """
 let reviewCreationInProgress = false;
 const sliders = [{value: "5", dataset: {priorityId: "security"}}];
 const aspects = [
@@ -1656,7 +1807,7 @@ function setRepositoryError() {}
 async function reload() {}
 const modes = [
   {checked: true, value: "code_audit"},
-  {checked: false, value: "golden_feature"},
+  {checked: true, value: "golden_feature"},
 ];
 function selectedReviewModes() {
   return modes.filter((mode) => mode.checked).map((mode) => mode.value);
@@ -1673,11 +1824,13 @@ createReview().then(() => console.log(JSON.stringify(request)));
     assert json.loads(result.stdout) == {
         "path": "/api/reviews",
         "body": {
-            "review_modes": ["code_audit"],
+            "review_modes": ["code_audit", "golden_feature"],
             "review_focus": {
                 "criteria": {"security": 5},
                 "custom_text": "Check retries",
-                "golden_feature_aspects": [],
+                "golden_feature_aspects": [
+                    "architecture", "third_party_integrations",
+                ],
             },
         },
     }
