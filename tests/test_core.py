@@ -12,7 +12,13 @@ from reporeview_arena.modes import (
     normalize_review_modes,
     rubric_fields_for_modes,
 )
-from reporeview_arena.orchestrator import _execute_tool, audit_many, audit_one, model_slug
+from reporeview_arena.orchestrator import (
+    _execute_tool,
+    audit_many,
+    audit_one,
+    model_slug,
+    provider_preferences,
+)
 from reporeview_arena.prompts import build_prompt
 from reporeview_arena.reports import parse_report, validate_locations
 from reporeview_arena.repository import RepositoryReader, snapshot_repo
@@ -340,6 +346,79 @@ async def test_openrouter_session_id_is_not_sent_to_unverified_endpoint(competit
     )
 
     assert "extra_body" not in calls[0]
+
+
+@pytest.mark.asyncio
+async def test_openrouter_provider_preferences_sent_with_session_on_every_call(competition):
+    _, workspace, _ = competition
+    calls = []
+    tool = SimpleNamespace(id="t1", function=SimpleNamespace(
+        name="read_file", arguments='{"path":"main.py"}'))
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        message = (SimpleNamespace(content="", tool_calls=[tool]) if len(calls) == 1 else
+                   SimpleNamespace(content=json.dumps(sample_report()), tool_calls=[]))
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None)
+
+    provider = {"sort": "price", "quantizations": ["fp8", "bf16"],
+                "max_price": {"prompt": 0.5, "completion": 2}}
+    await audit_one(
+        workspace, {"id": "mock", "model": "openrouter/vendor/model", "provider": provider},
+        max_steps=1, completion=completion,
+    )
+
+    assert len(calls) == 2
+    assert [call["extra_body"]["provider"] for call in calls] == [provider] * 2
+    assert all("order" not in call["extra_body"]["provider"] for call in calls)
+    assert len({call["extra_body"]["session_id"] for call in calls}) == 1
+
+
+@pytest.mark.parametrize("model", [
+    {"model": "openrouter/vendor/model", "provider": {"order": ["a", "b"]}},
+    {"model": "openrouter/vendor/model", "provider": {"sort": "price", "order": ["a"]}},
+    {"model": "openrouter/vendor/model", "provider": {"only": ["a"]}},
+    {"model": "openrouter/vendor/model", "provider": {}},
+    {"model": "openrouter/vendor/model", "provider": ["price"]},
+    {"model": "openrouter/vendor/model", "provider": {"sort": "cheapest"}},
+    {"model": "openrouter/vendor/model", "provider": {"sort": ["price"]}},
+    {"model": "openrouter/vendor/model", "provider": {"quantizations": []}},
+    {"model": "openrouter/vendor/model", "provider": {"quantizations": "fp8"}},
+    {"model": "openrouter/vendor/model", "provider": {"quantizations": ["int3"]}},
+    {"model": "openrouter/vendor/model", "provider": {"quantizations": ["fp8", "fp8"]}},
+    {"model": "openrouter/vendor/model", "provider": {"max_price": {}}},
+    {"model": "openrouter/vendor/model", "provider": {"max_price": {"prompt": -1}}},
+    {"model": "openrouter/vendor/model", "provider": {"max_price": {"prompt": True}}},
+    {"model": "openrouter/vendor/model", "provider": {"max_price": {"prompt": float("inf")}}},
+    {"model": "openrouter/vendor/model", "provider": {"max_price": {"tokens": 1}}},
+    {"model": "openai/model", "provider": {"sort": "price"}},
+    {"model": "openrouter/vendor/model", "api_base": "https://proxy.example/v1",
+     "provider": {"sort": "price"}},
+])
+@pytest.mark.asyncio
+async def test_invalid_provider_preferences_rejected_before_any_call(competition, model):
+    _, workspace, _ = competition
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+
+    with pytest.raises(ValueError):
+        await audit_one(workspace, {"id": "mock", **model}, completion=completion)
+    assert not calls
+    assert not (workspace / "usage").exists()
+
+
+def test_provider_preferences_are_copied_and_order_explained():
+    source = {"sort": "throughput", "quantizations": ["fp16"], "max_price": {"completion": 3}}
+    model = {"model": "openrouter/vendor/model", "provider": source}
+    result = provider_preferences(model)
+    assert result == source
+    result["quantizations"].append("int4")
+    assert source["quantizations"] == ["fp16"]
+    assert provider_preferences({"model": "openai/model"}) is None
+    with pytest.raises(ValueError, match="sticky routing"):
+        provider_preferences({"model": "openrouter/x/y", "provider": {"order": ["a"]}})
 
 
 @pytest.mark.asyncio

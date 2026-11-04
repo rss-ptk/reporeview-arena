@@ -1061,6 +1061,15 @@ def test_run_rejects_missing_config_duplicate_and_unauthorized_requests(dashboar
     assert "overwrite" in error["error"].lower()
     assert not called
 
+    (workspace / "reports" / "mock.json").unlink()
+    server.models_path.write_text(json.dumps({"models": [{
+        "id": "mock", "model": "openrouter/vendor/model", "provider": {"order": ["a", "b"]},
+    }]}), encoding="utf-8")
+    status, error = _request(base_url, "/api/run", token=token, origin=base_url, payload=payload)
+    assert status == 400
+    assert "provider.order" in error["error"]
+    assert not called
+
 
 def test_only_one_audit_can_run_at_a_time(dashboard, tmp_path, monkeypatch):
     _, base_url, token = dashboard

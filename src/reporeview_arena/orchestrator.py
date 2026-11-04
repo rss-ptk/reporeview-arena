@@ -47,6 +47,56 @@ def model_slug(name: str) -> str:
     return name
 
 
+_PROVIDER_SORTS = frozenset({"price", "throughput", "latency"})
+_QUANTIZATIONS = frozenset({"int4", "int8", "fp4", "mxfp4", "nvfp4", "fp6", "fp8", "mxfp8",
+                            "fp16", "bf16", "fp32", "unknown"})
+_MAX_PRICE_FIELDS = frozenset({"prompt", "completion", "request", "image"})
+
+
+def provider_preferences(model: dict[str, Any]) -> dict[str, Any] | None:
+    """Validate a model's optional OpenRouter `provider` routing block.
+
+    Only sort, quantizations and max_price are accepted. provider.order is refused
+    because OpenRouter skips sticky routing when a manual order is given, which
+    breaks prompt cache reuse across tool rounds.
+    """
+    prefs = model.get("provider")
+    if prefs is None:
+        return None
+    name = model.get("model")
+    if not isinstance(name, str) or not is_openrouter_endpoint(name, model.get("api_base")):
+        raise ValueError("provider preferences are only supported for OpenRouter models")
+    if not isinstance(prefs, dict) or not prefs:
+        raise ValueError("provider must be a nonempty object")
+    if "order" in prefs:
+        raise ValueError("provider.order is not supported: it disables OpenRouter sticky "
+                         "routing and prompt cache reuse; use provider.sort instead")
+    if prefs.keys() - {"sort", "quantizations", "max_price"}:
+        raise ValueError("provider supports only sort, quantizations and max_price")
+    result: dict[str, Any] = {}
+    if "sort" in prefs:
+        if not isinstance(prefs["sort"], str) or prefs["sort"] not in _PROVIDER_SORTS:
+            raise ValueError("provider.sort must be price, throughput or latency")
+        result["sort"] = prefs["sort"]
+    if "quantizations" in prefs:
+        levels = prefs["quantizations"]
+        if (not isinstance(levels, list) or not levels
+                or any(not isinstance(level, str) or level not in _QUANTIZATIONS for level in levels)
+                or len(set(levels)) != len(levels)):
+            raise ValueError("provider.quantizations must be a nonempty list of unique "
+                             "OpenRouter quantization levels")
+        result["quantizations"] = list(levels)
+    if "max_price" in prefs:
+        prices = prefs["max_price"]
+        if (not isinstance(prices, dict) or not prices or prices.keys() - _MAX_PRICE_FIELDS
+                or any(type(value) not in (int, float) or not math.isfinite(value) or value < 0
+                       for value in prices.values())):
+            raise ValueError("provider.max_price must map prompt, completion, request or image "
+                             "to a nonnegative USD amount")
+        result["max_price"] = dict(prices)
+    return result
+
+
 class AuditFailure(RuntimeError):
     """Public failure details, without SDK exception text or request payloads."""
 
@@ -214,6 +264,14 @@ async def audit_one(
     run_id = run_id or new_run_id()
     session_id = (f"reporeview-{run_id}-{model_id}"
                   if is_openrouter_endpoint(model["model"], model.get("api_base")) else None)
+    # Identical on every call: OpenRouter keeps the session on one provider (sticky routing),
+    # while sort/quantizations/max_price only constrain which provider it starts on.
+    extra_body: dict[str, Any] = {}
+    if session_id is not None:
+        extra_body["session_id"] = session_id
+    provider = provider_preferences(model)
+    if provider is not None:
+        extra_body["provider"] = provider
     if not 0 <= retries <= 5 or not 0 <= retry_delay <= 60:
         raise ValueError("retries must be between 0 and 5; retry_delay between 0 and 60 seconds")
     if completion is None:
@@ -267,8 +325,8 @@ async def audit_one(
             opts["max_tokens"] = max_tokens
         if model.get("api_base"):
             opts["api_base"] = model["api_base"]
-        if session_id is not None:
-            opts["extra_body"] = {"session_id": session_id}
+        if extra_body:
+            opts["extra_body"] = extra_body
         if not final:
             opts["tools"] = TOOLS
             opts["tool_choice"] = "auto"
