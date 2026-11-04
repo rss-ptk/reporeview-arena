@@ -306,8 +306,6 @@ async def audit_one(
             batch.append({"role": "tool", "tool_call_id": call.id, "content": "ERROR: per-turn tool call limit"})
         batches.append(batch)
     try:
-        if finish_reason == "length":
-            raise ValueError("Output truncated: finish_reason=length")
         manifest = load_json(workspace / "manifest.json")
         report = parse_report(
             response_text, reader.allowed,

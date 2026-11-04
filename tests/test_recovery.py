@@ -169,7 +169,7 @@ async def test_nonretryable_provider_errors_have_safe_diagnostics(workspace, del
     ('{"raw":"LOCAL_REPORT_PAYLOAD"', "stop", "json"),
     ('{"findings":[],"summary":"LOCAL_REPORT_PAYLOAD"}', "stop", "schema"),
     ("", "stop", "empty"),
-    (report(), "length", "truncat"),
+    ('{"findings": [', "length", "truncat"),
     (report(file="../LOCAL_REPORT_PAYLOAD.py"), "stop", "file"),
     (report(line=999), "stop", "line"),
 ])
