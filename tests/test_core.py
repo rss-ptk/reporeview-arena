@@ -7,12 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from reporeview_arena import orchestrator
 from reporeview_arena.modes import (
     DEFAULT_REVIEW_MODES,
     normalize_review_modes,
     rubric_fields_for_modes,
 )
-from reporeview_arena import orchestrator
 from reporeview_arena.orchestrator import (
     _execute_tool,
     _trim_history,
