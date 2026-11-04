@@ -56,6 +56,8 @@ section{margin-top:32px}.meta{font-size:12px;color:var(--muted)}.meta b{color:va
 button,select,input,textarea{border:1px solid #48627d;background:#16263c;color:var(--ink);border-radius:7px;font:inherit;padding:7px 10px}button{cursor:pointer}button:hover{border-color:var(--accent)}button:disabled{opacity:.5;cursor:not-allowed}button.primary{background:#155b67;border-color:#237e8e}input[type=number]{width:78px}label{font-size:12px;color:var(--muted)}.finding{padding:15px 0;border-top:1px solid var(--line)}.finding:first-child{border-top:0}p{margin:6px 0 12px}.code{font-family:ui-monospace,monospace;color:#8bd6e8;font-size:12px;overflow-wrap:anywhere}.detail{font-size:13px;color:#c5d1df;white-space:pre-wrap}.formrow{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin-top:12px}.formrow>div{display:flex;flex-direction:column;gap:4px}.field{display:flex;flex-direction:column;gap:5px;min-width:220px;flex:1}.pathinput{width:100%}.field textarea{min-height:74px;resize:vertical}.model-choice{display:flex;align-items:center;gap:8px;margin:7px 0}.model-choice input{margin:0}.job-outcomes{padding-left:20px;color:var(--muted)}.promptbox{max-height:420px;overflow:auto;background:#0a1220;border:1px solid var(--line);border-radius:8px;padding:14px}
 table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1px solid var(--line);text-align:left}th{font-size:11px;color:var(--muted);font-weight:600}td.num{text-align:right;font-variant-numeric:tabular-nums}tr:first-child td{font-weight:700}pre{white-space:pre-wrap;overflow-wrap:anywhere}#message{margin-top:12px;color:var(--accent)}.save-feedback{margin:8px 0 0;font-size:13px;color:var(--muted)}.save-feedback:empty{display:none}.save-feedback[data-state="success"]{color:var(--accent)}.save-feedback[data-state="error"]{color:var(--red)}
 @media(max-width:800px){.grid{grid-template-columns:1fr}main{padding:22px 13px}.panel{padding:14px}}
+.server-alert{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin:16px 0 0;padding:12px 14px;border:1px solid var(--red);border-left-width:4px;border-radius:8px;background:#2a1622;color:var(--ink)}.server-alert[hidden]{display:none}.server-alert-body{min-width:0}.server-alert p{margin:4px 0;color:var(--ink);white-space:pre-wrap;overflow-wrap:anywhere}.server-alert small{color:var(--muted);overflow-wrap:anywhere}.server-alert button{flex:0 0 auto}
+@media(max-width:460px){.server-alert{flex-direction:column}.server-alert button{align-self:flex-end}}
 .field-heading{display:flex;align-items:center;gap:7px}.help-wrap{position:relative;display:inline-flex;align-items:center}.help-tip{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;border-radius:50%;font-size:11px;font-weight:700;line-height:1}.tooltip-content{display:none;position:absolute;left:0;top:calc(100% + 8px);z-index:30;width:min(280px,calc(100vw - 48px));padding:9px 11px;border:1px solid #48627d;border-radius:8px;background:#09111f;color:var(--ink);font-size:12px;font-weight:400;line-height:1.45;text-align:left;white-space:normal;box-shadow:0 8px 24px #0008}.help-wrap:hover .tooltip-content,.help-wrap:focus-within .tooltip-content{display:block}.help-wrap.tip-right .tooltip-content{left:auto;right:0}.field-description{font-size:12px;color:var(--muted);line-height:1.4}
 .workspace-accordions{display:grid;gap:10px}.workspace-accordion{border:1px solid var(--line);border-radius:10px;background:#101a2b}.workspace-accordion>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;font-weight:700;cursor:pointer;list-style:none}.workspace-accordion>summary::-webkit-details-marker,.workspace-accordion>summary::marker{display:none;content:""}.workspace-accordion>summary::after{content:"+";color:var(--accent);font-size:20px;line-height:1}.workspace-accordion[open]>summary::after{content:"−"}.workspace-accordion>summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:7px}.workspace-accordion-body{border-top:1px solid var(--line);padding:14px}.workspace-accordion-body>.formrow:first-child{margin-top:0}.workspace-accordion .focus-config{grid-column:auto;margin:16px 0 12px}.workspace-accordion .focus-submit{grid-column:auto;margin-top:12px}
 .focus-config{grid-column:1/-1;width:100%;min-width:0;border:1px solid var(--line);border-radius:10px;padding:12px;margin:16px 0 12px}.focus-config legend{padding:0 6px;font-weight:700}.focus-config legend .help-wrap{margin-left:4px}.focus-criteria-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:10px 0 14px}.focus-criterion{min-width:0;border:1px solid var(--line);border-radius:8px;background:#101a2b;padding:10px}.focus-criterion .field-heading{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:5px 6px}.focus-criterion label{grid-column:1;grid-row:1;color:var(--ink);line-height:1.35}.focus-criterion .help-wrap{grid-column:2;grid-row:1}.focus-criterion .tooltip-content{left:auto;right:0}.focus-priority-level{grid-column:1/-1;grid-row:2;color:var(--accent);font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}.priority-slider{display:block;width:100%;height:26px;margin:7px 0 0;padding:0;border:0;background:transparent;accent-color:var(--accent);cursor:pointer}.priority-slider:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}.custom-focus-field{max-width:100%}.focus-submit{grid-column:1/-1;display:flex;justify-content:flex-end}
@@ -77,6 +79,7 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 .golden-feature-aspect:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 </style></head><body><main>
 <header><div><div class="eyebrow" data-i18n="independentAudits">Independent LLM code audits</div><h1>RepoReview <span class="gold">Arena</span></h1><div id="project" class="meta" data-i18n="loadingCompetition">Loading competition…</div></div><div class="header-actions"><span id="language-label" class="language-label" data-i18n="languageLabel">Language</span><div id="language-toggle" class="language-toggle" role="group" aria-labelledby="language-label"><button type="button" class="language-option" data-language="en" aria-pressed="true">EN</button><button type="button" class="language-option" data-language="pt-BR" aria-pressed="false">PT-BR</button></div><button data-i18n="refresh" onclick="reload()">Refresh</button></div></header>
+<div id="server-alert" class="server-alert" role="alert" aria-atomic="true" hidden><div class="server-alert-body"><strong data-i18n="serverAlertTitle">Server request failed</strong><p id="server-alert-message"></p><small id="server-alert-context"></small></div><button id="server-alert-dismiss" type="button" data-i18n="serverAlertDismiss">Dismiss</button></div>
 <section class="wizard-shell" aria-labelledby="wizard-title">
 <div class="wizard-heading"><div><div class="eyebrow" data-i18n="localWorkspace">Review setup</div><h2 id="wizard-title" data-i18n="wizardTitle">Review workflow</h2></div><div id="wizard-progress" class="wizard-progress" role="progressbar" aria-label="Workflow progress" data-i18n-aria-label="wizardProgress" aria-valuemin="1" aria-valuemax="5" aria-valuenow="1" aria-valuetext="Step 1 of 5"><span id="wizard-progress-fill"></span></div></div>
 <nav id="wizard-nav" class="wizard-nav" aria-label="Workflow progress" data-i18n-aria-label="wizardProgress"><ol>
@@ -240,6 +243,12 @@ const translations = {
     repositoryGitRequired: "Choose the root of a valid Git repository.",
     repositoryRootRequired: "Choose the Git repository root, not a subdirectory.",
     repositoryDirty: "This Git checkout has tracked changes. Commit or stash them before creating a review.",
+    serverAlertTitle: "Server request failed",
+    serverAlertDismiss: "Dismiss",
+    serverAlertContext: "Request {path} · HTTP {status}",
+    serverAlertContextNoStatus: "Request {path}",
+    serverRequestFailed: "The server returned an error.",
+    serverUnreadableResponse: "The server returned a response the app could not read.",
     reviewHistory: "Previous reviews for this repository",
     noPreviousReviews: "No saved reviews",
     openReview: "Open review",
@@ -514,6 +523,12 @@ const translations = {
     repositoryGitRequired: "Escolha a raiz de um reposit\u00f3rio Git v\u00e1lido.",
     repositoryRootRequired: "Escolha a raiz do reposit\u00f3rio Git, n\u00e3o uma subpasta.",
     repositoryDirty: "Este checkout Git tem altera\u00e7\u00f5es em arquivos controlados. Fa\u00e7a commit ou stash antes de criar uma revis\u00e3o.",
+    serverAlertTitle: "Falha na solicita\u00e7\u00e3o ao servidor",
+    serverAlertDismiss: "Fechar",
+    serverAlertContext: "Requisi\u00e7\u00e3o {path} \u00b7 HTTP {status}",
+    serverAlertContextNoStatus: "Requisi\u00e7\u00e3o {path}",
+    serverRequestFailed: "O servidor retornou um erro.",
+    serverUnreadableResponse: "O app n\u00e3o conseguiu interpretar a resposta do servidor.",
     reviewHistory: "Revis\u00f5es anteriores deste reposit\u00f3rio",
     noPreviousReviews: "Nenhuma revis\u00e3o salva",
     openReview: "Abrir revis\u00e3o",
@@ -921,14 +936,57 @@ function setRepositoryError(id, error) {
   }
   setMessage(id, message);
 }
+function dismissServerAlert() {
+  document.getElementById("server-alert").hidden = true;
+}
+function showServerAlert(message, path, status) {
+  const alert = document.getElementById("server-alert");
+  const messageElement = document.getElementById("server-alert-message");
+  const context = document.getElementById("server-alert-context");
+  const text = String(message || t("serverRequestFailed"));
+  const endpoint = String(path || "");
+  const hasStatus = status !== undefined && status !== null;
+  const contextKey = hasStatus ? "serverAlertContext" : "serverAlertContextNoStatus";
+  const contextValues = hasStatus
+    ? {path: endpoint, status: status}
+    : {path: endpoint};
+  const unchanged = !alert.hidden && messageElement.textContent === text &&
+    context.dataset.translationKey === contextKey &&
+    context.dataset.translationValues === JSON.stringify(contextValues);
+  if (unchanged) return;
+  messageElement.textContent = text;
+  setLocalizedMessage("server-alert-context", contextKey, contextValues);
+  alert.hidden = false;
+}
 async function api(path, payload) {
   const hasPayload = payload !== undefined;
-  const response = await fetch(path, {
-    method: hasPayload ? "POST" : "GET",
-    headers: { "Content-Type": "application/json", "X-Arena-Token": token },
-    body: hasPayload ? JSON.stringify(payload) : undefined,
-  });
-  const data = await response.json();
+  let response;
+  try {
+    response = await fetch(path, {
+      method: hasPayload ? "POST" : "GET",
+      headers: { "Content-Type": "application/json", "X-Arena-Token": token },
+      body: hasPayload ? JSON.stringify(payload) : undefined,
+    });
+  } catch (error) {
+    const message = error && error.message ? error.message : t("serverRequestFailed");
+    showServerAlert(message, path);
+    throw error;
+  }
+  const responseText = await response.text();
+  let data;
+  try {
+    data = responseText ? JSON.parse(responseText) : {};
+  } catch (error) {
+    if (response.ok) {
+      const message = t("serverUnreadableResponse");
+      showServerAlert(message, path, response.status);
+      throw Error(message);
+    }
+    data = {error: responseText.trim()};
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    data = {error: String(data || "")};
+  }
   if (!response.ok) {
     const errorKeys = {
       missing_page_token: "errorMissingPageToken",
@@ -937,8 +995,11 @@ async function api(path, payload) {
       invalid_host: "errorInvalidHost",
     };
     const errorKey = errorKeys[data.error_code];
-    if (errorKey) throw Error(t(errorKey, {url: data.dashboard_url || location.origin}));
-    throw Error(data.error || "Request failed");
+    const message = errorKey
+      ? t(errorKey, {url: data.dashboard_url || location.origin})
+      : String(data.error || data.message || t("serverRequestFailed"));
+    showServerAlert(message, path, response.status);
+    throw Error(message);
   }
   return data;
 }
@@ -1939,6 +2000,7 @@ document.querySelectorAll("[data-golden-feature-aspect]").forEach(function (aspe
   aspect.addEventListener("change", updateWorkspaceActions);
 });
 const languageToggle = document.getElementById("language-toggle");
+document.getElementById("server-alert-dismiss").addEventListener("click", dismissServerAlert);
 document.getElementById("folder-dialog").addEventListener("close", function () {
   folderRequestId += 1;
   folderPickerData = null;
