@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .modes import normalize_review_modes
+from .modes import normalize_review_modes, rubric_fields_for_modes
 
 WEIGHTS = {"P0": 20, "P1": 10, "P2": 4, "P3": 1}
 
@@ -13,7 +13,11 @@ class InvalidJudgmentSeverity(ValueError):
     """Raised when a saved judgment uses a severity outside the scoring rubric."""
 
 
-def calculate(report: dict[str, Any], judgment: dict[str, Any]) -> dict[str, Any]:
+def calculate(
+    report: dict[str, Any], judgment: dict[str, Any], review_modes: object = None,
+) -> dict[str, Any]:
+    fields = set(rubric_fields_for_modes(review_modes))
+    audit_enabled = "improvements" in fields
     adjudications = judgment.get("findings", {})
     bugs = 0
     penalty = 0
@@ -21,7 +25,7 @@ def calculate(report: dict[str, Any], judgment: dict[str, Any]) -> dict[str, Any
     accepted = 0
     rejected = 0
     pending = 0
-    for finding in report["findings"]:
+    for finding in (report["findings"] if audit_enabled else []):
         decision = adjudications.get(finding["id"], {})
         verdict = decision.get("verdict", "pending")
         if verdict == "confirmed":
@@ -44,9 +48,12 @@ def calculate(report: dict[str, Any], judgment: dict[str, Any]) -> dict[str, Any
             pending += 1
     bugs = min(bugs, 60)
     rubric = judgment.get("rubric", {})
-    improvements = min(max(int(rubric.get("improvements", 0)), 0), 15)
-    gold = min(max(int(rubric.get("gold", 0)), 0), 20)
-    rigor = min(max(int(rubric.get("rigor", 0)), 0), 5)
+    improvements = (
+        min(max(int(rubric.get("improvements", 0)), 0), 15)
+        if "improvements" in fields else 0
+    )
+    gold = min(max(int(rubric.get("gold", 0)), 0), 20) if "gold" in fields else 0
+    rigor = min(max(int(rubric.get("rigor", 0)), 0), 5) if "rigor" in fields else 0
     total = max(0, min(100, bugs + improvements + gold + rigor - penalty))
     return {
         "bugs": bugs, "improvements": improvements, "gold": gold, "rigor": rigor,
@@ -55,9 +62,11 @@ def calculate(report: dict[str, Any], judgment: dict[str, Any]) -> dict[str, Any
     }
 
 
-def leaderboard(reports: dict[str, dict], judgments: dict[str, dict]) -> list[dict]:
+def leaderboard(
+    reports: dict[str, dict], judgments: dict[str, dict], review_modes: object = None,
+) -> list[dict]:
     rows = [
-        {"model": name, **calculate(report, judgments.get(name, {})),
+        {"model": name, **calculate(report, judgments.get(name, {}), review_modes),
          "findings": len(report["findings"]),
          "golden_feature": (report.get("golden_feature") or {}).get("name", "")}
         for name, report in reports.items()
@@ -77,7 +86,7 @@ def leaderboards(
     if "code_audit" in modes:
         audit_rows = []
         for model, report in reports.items():
-            score = calculate(report, judgments.get(model, {}))
+            score = calculate(report, judgments.get(model, {}), modes)
             total = max(0, min(
                 80, score["bugs"] + score["improvements"] + score["rigor"] - score["penalty"],
             ))

@@ -24,7 +24,7 @@ from .local_data import (
     review_directory,
     save_repository_path,
 )
-from .modes import normalize_review_modes
+from .modes import normalize_review_modes, rubric_fields_for_modes
 from .orchestrator import audit_many, model_slug
 from .reports import parse_report, validate_locations
 from .repository import validate_repository_root
@@ -2291,7 +2291,7 @@ def _data(workspace: Path) -> dict:
         "review_modes": review_modes,
         "reports": reports,
         "judgments": judgments,
-        "leaderboard": leaderboard(reports, judgments),
+        "leaderboard": leaderboard(reports, judgments, review_modes),
         "leaderboards": leaderboards(reports, judgments, review_modes),
         "usage": read_usage(workspace),
     }
@@ -2957,23 +2957,30 @@ def create_server(
                         raise ValueError("Unknown model")
                     path = workspace_path / "judgments" / f"{model}.json"
                     decision = load_json(path) if path.exists() else {"findings": {}, "rubric": {}}
+                    modes = normalize_review_modes(
+                        load_json(workspace_path / "manifest.json").get("review_modes"),
+                    )
                     if self.path == "/api/rubric":
-                        modes = normalize_review_modes(
-                            load_json(workspace_path / "manifest.json").get("review_modes"),
-                        )
-                        rubric_fields = []
-                        if "code_audit" in modes:
-                            rubric_fields.extend(("improvements", "rigor"))
-                        if "golden_feature" in modes:
-                            rubric_fields.append("gold")
+                        rubric_fields = rubric_fields_for_modes(modes)
                         maxima = {"improvements": 15, "gold": 20, "rigor": 5}
                         scores = {key: payload.get(key) for key in rubric_fields}
                         for key, score in scores.items():
                             maximum = maxima[key]
                             if type(score) is not int or not 0 <= score <= maximum:
                                 raise ValueError(f"Invalid {key} score")
-                        decision["rubric"] = {**decision.get("rubric", {}), **scores}
+                        existing_rubric = decision.get("rubric", {})
+                        if not isinstance(existing_rubric, dict):
+                            raise ValueError("Invalid rubric data")
+                        decision["rubric"] = {
+                            key: value for key, value in existing_rubric.items()
+                            if key in rubric_fields
+                        }
+                        decision["rubric"].update(scores)
                     else:
+                        if "code_audit" not in modes:
+                            raise ValueError(
+                                "Findings can only be adjudicated for code_audit reviews"
+                            )
                         finding = payload.get("finding")
                         if finding not in {item["id"] for item in reports[model]["findings"]}:
                             raise ValueError("Unknown finding")
