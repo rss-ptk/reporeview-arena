@@ -121,7 +121,7 @@ reporeview usage --workspace ./arenas/project-2026
 reporeview usage --workspace ./arenas/project-2026 --run-id <run-id>
 ```
 
-Amounts are the OpenRouter credits reported by responses, not a complete invoice. A partial or unavailable total means at least one attempt has no reported cost; zero is shown only when actually reported. Provider cost, when available, is separate, including for BYOK. Token counts, cache and reasoning fields may also be unavailable. Imported and older reports cannot supply historical costs. The usage records contain metadata only, not prompts, source code or model responses. Monitoring does not impose a budget or query OpenRouter for missing data.
+Amounts are the OpenRouter credits reported by responses, not a complete invoice. A partial or unavailable total means at least one attempt has no reported cost; zero is shown only when actually reported. Provider cost, when available, is separate, including for BYOK. Token counts, cache and reasoning fields may also be unavailable. Imported and older reports cannot supply historical costs. The usage records contain metadata only, not prompts, source code or model responses. A failed attempt also records its error class and HTTP status when available, such as `RateLimitError` with 429 or `NotFoundError` with 404, and the dashboard shows them in the attempt list; SDK error messages are never stored. Monitoring does not impose a budget or query OpenRouter for missing data.
 
 Import the JSON or a Markdown fenced `json` block:
 

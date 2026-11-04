@@ -123,6 +123,7 @@ def start_attempt(workspace: Path, run_id: str, model_id: str, model: str,
               "step": step, "attempt": attempt,
               "started_at": datetime.now(timezone.utc).isoformat(), "status": "in_progress",
               "generation_id": None, "resolved_model": None, "provider": None, "is_byok": None,
+              "error_type": None, "http_status": None,
               "usage": {field: None for field in TOKEN_FIELDS},
               "cost": {"openrouter_credits_usd": None, "upstream_inference_usd": None,
                        "source": None, "cache_discount_usd": None,
@@ -131,12 +132,22 @@ def start_attempt(workspace: Path, run_id: str, model_id: str, model: str,
     return path, record
 
 
-def finish_attempt(path: Path, record: dict[str, Any], *, response: Any = None) -> None:
+def finish_attempt(path: Path, record: dict[str, Any], *, response: Any = None,
+                   failure: dict[str, Any] | None = None) -> None:
+    """Close an attempt record; a failed attempt keeps only its error class and HTTP status.
+
+    The orchestrator's public failure details are the only accepted source, never SDK
+    exception text, which may echo request headers, prompts or source fragments.
+    """
     record["status"] = "response_received" if response is not None else "failed"
     record["finished_at"] = datetime.now(timezone.utc).isoformat()
     if response is not None:
         record.update(normalize_response(response, record["requested_model"] or "",
                                          openrouter=record["openrouter_verified"]))
+    elif failure is not None:
+        status = failure.get("http_status")
+        record["error_type"] = _identifier(failure.get("error_type"))
+        record["http_status"] = status if type(status) is int and 100 <= status <= 599 else None
     save_json(path, record)
 
 

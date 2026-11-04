@@ -476,6 +476,7 @@ const translations = {
     usageFailed: "failed",
     usageReceived: "response received",
     usageProvider: "Provider",
+    usageError: "Error",
     usageModel: "Resolved model",
     noSummary: "No summary",
     findingOne: "{count} finding",
@@ -787,6 +788,7 @@ const translations = {
     usageFailed: "falhou",
     usageReceived: "resposta recebida",
     usageProvider: "Provedor",
+    usageError: "Erro",
     usageModel: "Modelo usado",
     noSummary: "Sem resumo",
     findingOne: "{count} achado",
@@ -1727,6 +1729,10 @@ function renderUsage() {
         t("usageModel") + ": " + usageValue(attempt.resolved_model),
         t("usageProvider") + ": " + usageValue(attempt.provider)];
       if (attempt.session_id) fields.push(t("usageSession") + ": " + attempt.session_id);
+      if (attempt.error_type || attempt.http_status) {
+        fields.push(t("usageError") + ": " + usageValue(attempt.error_type) +
+          (attempt.http_status ? " (HTTP " + attempt.http_status + ")" : ""));
+      }
       list.append(node("li", "detail", fields.join(" · ")));
     });
     section.append(list);

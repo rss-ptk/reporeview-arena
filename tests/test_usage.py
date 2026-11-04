@@ -266,6 +266,68 @@ async def test_provider_failure_after_success_preserves_observed_usage(tmp_path)
     assert "PRIVATE_EXCEPTION" not in stored
 
 
+@pytest.mark.asyncio
+async def test_failed_attempts_record_error_class_and_http_status(tmp_path, monkeypatch):
+    from reporeview_arena.orchestrator import audit_many
+
+    (tmp_path / "snapshot").mkdir()
+    (tmp_path / "prompt.md").write_text("test")
+    (tmp_path / "manifest.json").write_text('{"commit":"abc"}')
+
+    class RateLimitError(Exception):
+        status_code = 429
+
+    class NotFoundError(Exception):
+        status_code = 404
+
+    errors = [RateLimitError("PRIVATE_EXCEPTION Authorization: Bearer sk-secret"),
+              NotFoundError("PRIVATE_EXCEPTION no endpoints")]
+
+    async def completion(**kwargs):
+        raise errors.pop(0)
+
+    async def sleep(_):
+        pass
+
+    monkeypatch.setattr("reporeview_arena.orchestrator.asyncio.sleep", sleep)
+    result, = await audit_many(tmp_path, [{"id": "m", "model": "openrouter/test"}],
+                               completion=completion, retries=1)
+
+    assert result["stage"] == "provider"
+    assert result["http_status"] == 404
+    attempts = read_usage(tmp_path)["runs"][0]["attempts"]
+    assert [(a["status"], a["error_type"], a["http_status"]) for a in attempts] == [
+        ("failed", "RateLimitError", 429), ("failed", "NotFoundError", 404)]
+    stored = json.dumps(read_usage(tmp_path))
+    assert "PRIVATE_EXCEPTION" not in stored
+    assert "sk-secret" not in stored
+
+
+def test_attempt_error_fields_accept_only_safe_values(tmp_path):
+    from reporeview_arena.usage import finish_attempt, new_run_id, start_attempt
+
+    run_id = new_run_id()
+    path, record = start_attempt(tmp_path, run_id, "m", "openrouter/test", 1, 1)
+    assert record["error_type"] is None and record["http_status"] is None
+    finish_attempt(path, record, failure={"error_type": "Bad <type> PRIVATE_DETAIL",
+                                          "http_status": 999, "error": "PRIVATE_DETAIL"})
+    saved = json.loads(path.read_text())
+    assert saved["status"] == "failed"
+    assert saved["error_type"] is None and saved["http_status"] is None
+    assert "PRIVATE_DETAIL" not in path.read_text()
+
+    path, record = start_attempt(tmp_path, run_id, "m", "openrouter/test", 2, 1)
+    finish_attempt(path, record, failure={"error_type": "TimeoutError", "http_status": True})
+    saved = json.loads(path.read_text())
+    assert saved["error_type"] == "TimeoutError" and saved["http_status"] is None
+
+    path, record = start_attempt(tmp_path, run_id, "m", "openrouter/test", 3, 1)
+    finish_attempt(path, record, response={"usage": {"cost": 0}})
+    saved = json.loads(path.read_text())
+    assert saved["status"] == "response_received"
+    assert saved["error_type"] is None and saved["http_status"] is None
+
+
 def test_cli_usage_lists_history_and_filters_run(tmp_path, capsys):
     from reporeview_arena.cli import execute, parser
     from reporeview_arena.usage import finish_attempt, new_run_id, start_attempt

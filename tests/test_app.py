@@ -1225,6 +1225,17 @@ def test_usage_panel_exposes_cache_effect_coverage_and_session(dashboard):
     assert "custos adicionais de gravação" in page
 
 
+def test_usage_panel_shows_failed_attempt_error_and_http_status(dashboard):
+    _, base_url, _ = dashboard
+    page = _served_page(base_url)
+
+    assert 't("usageError")' in page
+    assert "attempt.error_type" in page
+    assert "attempt.http_status" in page
+    assert 'usageError: "Error"' in page
+    assert 'usageError: "Erro"' in page
+
+
 def test_control_page_exposes_accessible_five_step_wizard(dashboard):
     _, base_url, _ = dashboard
     page = _served_page(base_url)

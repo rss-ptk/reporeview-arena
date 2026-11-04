@@ -193,12 +193,12 @@ async def _complete(completion, opts: dict[str, Any], model_id: str,
         try:
             reply = await completion(**opts)
         except Exception as exc:
+            details = _provider_failure(exc)
             try:
-                finish_attempt(path, record)
+                finish_attempt(path, record, failure=details)
             except OSError as write_exc:
                 raise AuditFailure({"error_type": "UsageWriteError", "stage": "usage",
                                     "error": "Could not save usage monitoring data; audit stopped."}) from write_exc
-            details = _provider_failure(exc)
             details["attempts"] = attempt + 1
             delay = max(min(60.0, retry_delay * 2 ** attempt),
                         details.get("retry_after_seconds", 0.0))
