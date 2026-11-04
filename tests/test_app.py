@@ -1060,6 +1060,8 @@ NEW_TRANSLATION_KEYS = {
     "wizardResultsIntro", "partialScoreboard", "newReview", "newReviewHelp", "reviewShort",
     "serverAlertTitle", "serverAlertDismiss", "serverAlertContext",
     "serverAlertContextNoStatus", "serverRequestFailed", "serverUnreadableResponse",
+    "reviewCreateBeforeContinue", "savingReviewSettings", "reviewSettingsSaved",
+    "reviewSettingsLocked", "reviewSettingsLockedByAudit",
     "reviewModes", "reviewModesDescription", "codeAuditMode", "goldenFeatureMode",
     "selectReviewMode", "codeAuditScoreboard", "goldenFeatureScoreboard", "auditScore",
     "featureScore", "proposal",

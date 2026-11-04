@@ -40,6 +40,8 @@ from .workspace import (
     format_golden_feature_direction,
     format_review_focus,
     initialize_workspace,
+    normalize_review_configuration,
+    update_workspace_review_configuration,
     validate_workspace,
 )
 
@@ -213,14 +215,19 @@ const translations = {
     wizardProgressLabel: "Step {current} of 5",
     wizardRepoGate: "Save a valid Git repository to unlock this step.",
     wizardReviewGate: "Create or open a valid review to unlock this step.",
-    wizardUnsavedReviewSettings: "Create the new review or open a saved review before continuing.",
+    wizardUnsavedReviewSettings: "Click Continue to apply these settings before collecting reports.",
     wizardReportsGate: "Add a valid report and finish any audit for this review to unlock this step.",
     wizardAuditRunning: "This review's audit is still running.",
     wizardFindingsGate: "Resolve every finding to unlock the scorecard.",
     wizardRubricGate: "Save rubric scores for every report to unlock the scorecard.",
     wizardRefreshFailed: "Workflow state could not be refreshed. Refresh the page to continue.",
     wizardReviewIntro: "Choose a saved review or create one and set its review priorities.",
-    reviewSettingsUnsaved: "These settings are for a new review. Create it or open a saved review before continuing; the active review still uses its saved prompt.",
+    reviewSettingsUnsaved: "Changes are pending. Click Continue to update this review's prompt.",
+    reviewCreateBeforeContinue: "Create the new review before continuing.",
+    savingReviewSettings: "Saving review settings and updating the prompt…",
+    reviewSettingsSaved: "Review settings saved and prompt updated.",
+    reviewSettingsLocked: "This review already has reports. Create a new review to change its prompt.",
+    reviewSettingsLockedByAudit: "Wait for the current audit to finish before changing review settings.",
     wizardReportsIntro: "Run selected providers or import a report produced elsewhere. Provider audits require fresh consent.",
     wizardAdjudicationIntro: "Review findings and score only the deliverables selected for this review.",
     wizardResultsIntro: "All current reports have been reviewed. View and export the scorecard.",
@@ -302,15 +309,15 @@ const translations = {
     newWorkspacePathHelp: "Choose a folder that does not exist yet. The new review's snapshot, prompt, reports, and judgments will be saved there. Relative paths use the directory where you started reporeview web.",
     newWorkspacePathPlaceholder: "Path to new review folder",
     newWorkspacePathDescription: "A new folder where this review's files will be saved.",
-    reviewFocus: "Priorities for the new review",
+    reviewFocus: "Priorities for this review",
     helpReviewFocus: "Help for Review focus",
     reviewFocusHelp: "Set how much each criterion should guide the audit. A value of 0 omits that criterion. Higher values guide attention without changing evidence standards.",
-    reviewFocusDescription: "Choose priorities from 0 (omit) to 5 (critical). These settings apply only when creating a new review.",
+    reviewFocusDescription: "Choose priorities from 0 (omit) to 5 (critical). Click Continue to save them and update this review's prompt.",
     reviewModes: "Review outputs",
-    reviewModesDescription: "Choose one or both outputs for the new review. Both are selected by default.",
+    reviewModesDescription: "Choose one or both outputs for this review. Both are selected by default.",
     codeAuditMode: "Code audit",
     goldenFeatureMode: "Golden Feature",
-    selectReviewMode: "Select Code audit, Golden Feature, or both before creating a review.",
+    selectReviewMode: "Select Code audit, Golden Feature, or both before continuing.",
     priorityAriaValue: "Priority {value} of 5: {label}.",
     priorityOff: "Omitted",
     priorityLow: "Low",
@@ -493,14 +500,19 @@ const translations = {
     wizardProgressLabel: "Etapa {current} de 5",
     wizardRepoGate: "Salve um reposit\u00f3rio Git v\u00e1lido para liberar esta etapa.",
     wizardReviewGate: "Crie ou abra uma revis\u00e3o v\u00e1lida para liberar esta etapa.",
-    wizardUnsavedReviewSettings: "Crie a nova revis\u00e3o ou abra uma revis\u00e3o salva antes de continuar.",
+    wizardUnsavedReviewSettings: "Clique em Continuar para aplicar estas configura\u00e7\u00f5es antes de coletar relat\u00f3rios.",
     wizardReportsGate: "Adicione um relat\u00f3rio v\u00e1lido e aguarde a auditoria desta revis\u00e3o para liberar esta etapa.",
     wizardAuditRunning: "A auditoria desta revis\u00e3o ainda est\u00e1 em andamento.",
     wizardFindingsGate: "Defina um veredito para cada achado para liberar o placar.",
     wizardRubricGate: "Salve as notas da rubrica de cada relat\u00f3rio para liberar o placar.",
     wizardRefreshFailed: "N\u00e3o foi poss\u00edvel atualizar o fluxo. Atualize a p\u00e1gina para continuar.",
     wizardReviewIntro: "Escolha uma revis\u00e3o salva ou crie uma e defina suas prioridades.",
-    reviewSettingsUnsaved: "Estas configura\u00e7\u00f5es s\u00e3o de uma nova revis\u00e3o. Crie-a ou abra uma revis\u00e3o salva antes de continuar; a revis\u00e3o ativa ainda usa o prompt salvo nela.",
+    reviewSettingsUnsaved: "H\u00e1 altera\u00e7\u00f5es pendentes. Clique em Continuar para atualizar o prompt desta revis\u00e3o.",
+    reviewCreateBeforeContinue: "Crie a nova revis\u00e3o antes de continuar.",
+    savingReviewSettings: "Salvando as configura\u00e7\u00f5es e atualizando o prompt\u2026",
+    reviewSettingsSaved: "Configura\u00e7\u00f5es salvas e prompt atualizado.",
+    reviewSettingsLocked: "Esta revis\u00e3o j\u00e1 tem relat\u00f3rios. Crie uma nova revis\u00e3o para alterar o prompt.",
+    reviewSettingsLockedByAudit: "Aguarde a auditoria atual terminar antes de alterar as configura\u00e7\u00f5es.",
     wizardReportsIntro: "Execute auditorias nos provedores selecionados ou importe um relat\u00f3rio. Cada auditoria exige novo consentimento.",
     wizardAdjudicationIntro: "Revise os achados e dê notas apenas aos resultados selecionados nesta revisão.",
     wizardResultsIntro: "Todos os relat\u00f3rios atuais foram revisados. Consulte e exporte o placar.",
@@ -582,15 +594,15 @@ const translations = {
     newWorkspacePathHelp: "Escolha uma pasta que ainda não exista. O snapshot, a instrução, os relatórios e as avaliações da nova revisão serão salvos nela. Caminhos relativos usam a pasta em que você iniciou reporeview web.",
     newWorkspacePathPlaceholder: "Caminho da nova pasta de revisão",
     newWorkspacePathDescription: "Pasta nova onde os arquivos desta revisão serão salvos.",
-    reviewFocus: "Prioridades da nova revisão",
+    reviewFocus: "Prioridades desta revis\u00e3o",
     helpReviewFocus: "Ajuda sobre o foco da revisão",
     reviewFocusHelp: "Defina quanto cada critério deve orientar a auditoria. O valor 0 omite o critério. Valores maiores aumentam a atenção sem alterar o padrão de evidências.",
-    reviewFocusDescription: "Escolha prioridades de 0 (omitir) a 5 (crítica). Essas opções só são usadas ao criar uma nova revisão.",
+    reviewFocusDescription: "Escolha prioridades de 0 (omitir) a 5 (cr\u00edtica). Clique em Continuar para salv\u00e1-las e atualizar o prompt desta revis\u00e3o.",
     reviewModes: "Resultados da revisão",
-    reviewModesDescription: "Escolha um ou os dois resultados para a nova revisão. Ambos começam selecionados.",
+    reviewModesDescription: "Escolha um ou os dois resultados desta revis\u00e3o. Ambos come\u00e7am selecionados.",
     codeAuditMode: "Auditoria de código",
     goldenFeatureMode: "Golden Feature",
-    selectReviewMode: "Selecione Auditoria de código, Golden Feature ou ambas antes de criar a revisão.",
+    selectReviewMode: "Selecione Auditoria de c\u00f3digo, Golden Feature ou ambas antes de continuar.",
     priorityAriaValue: "Prioridade {value} de 5: {label}.",
     goldenFeatureDirection: "Direcionamento da Golden Feature",
     goldenFeatureDirectionDescription: "Selecione um ou mais aspectos para a única golden feature. A proposta deve atender de forma coerente a todos os aspectos marcados; deixe tudo desmarcado para não direcionar a proposta.",
@@ -750,9 +762,11 @@ const translations = {
 
 let language = "en";
 let reviewCreationInProgress = false;
+let reviewSetupSaving = false;
 let reviewSetupBaseline = null;
 let reviewSetupPending = false;
 let reviewSetupBaselineResetRequested = false;
+let reviewSetupNeedsSave = false;
 
 function t(key, values) {
   const dictionary = translations[language] || translations.en;
@@ -1121,12 +1135,13 @@ function reviewSetupSignature() {
   });
 }
 function reviewSetupHasUnsavedChanges() {
-  return reviewSetupPending ||
+  return reviewSetupPending || reviewSetupNeedsSave ||
     (reviewSetupBaseline !== null && reviewSetupSignature() !== reviewSetupBaseline);
 }
 function rememberReviewSetupBaseline() {
   reviewSetupBaseline = reviewSetupSignature();
   reviewSetupPending = false;
+  reviewSetupNeedsSave = false;
 }
 // END review-setup
 function setReviewModeSelection(modes) {
@@ -1149,21 +1164,39 @@ function updateWorkspaceActions() {
   const repositoryInput = document.getElementById("repo-path");
   const selectedPath = repositoryInput.value.trim();
   const savedPath = dashboardStatus.repository_path || "";
+  const hasReports = Object.keys(state.reports || {}).length > 0;
+  const settingsLockedByReports = hasReports && !reviewSetupPending;
+  const settingsLockedByAudit = jobIsActive(dashboardStatus.job);
+  const settingsDisabled = reviewCreationInProgress || reviewSetupSaving || settingsLockedByAudit ||
+    settingsLockedByReports;
   document.getElementById("save-repository-button").disabled =
     !selectedPath || (selectedPath === savedPath && dashboardStatus.repository_available);
   document.getElementById("create-review-button").disabled =
-    reviewCreationInProgress || !selectedReviewModes().length ||
+    reviewCreationInProgress || reviewSetupSaving || !selectedReviewModes().length ||
     !dashboardStatus.repository_available || selectedPath !== savedPath;
   document.getElementById("open-review-button").disabled =
-    !document.getElementById("review-history").value;
+    reviewSetupSaving || !document.getElementById("review-history").value;
   document.getElementById("new-review-button").disabled =
-    reviewCreationInProgress || !dashboardStatus.repository_available ||
+    reviewCreationInProgress || reviewSetupSaving || !dashboardStatus.repository_available ||
     selectedPath !== savedPath || !dashboardStatus.workspace ||
     jobIsActive(dashboardStatus.job);
+  ["review-mode-picker", "audit-focus-config", "golden-feature-aspects"]
+    .forEach(function (id) {
+      document.getElementById(id).disabled = settingsDisabled;
+    });
   const reviewConfigMessage = document.getElementById("review-config-message");
-  if (!reviewCreationInProgress && reviewSetupHasUnsavedChanges()) {
+  if (!reviewCreationInProgress && reviewSetupPending) {
+    setLocalizedMessage("review-config-message", "reviewCreateBeforeContinue");
+  } else if (!reviewCreationInProgress && settingsLockedByReports) {
+    setLocalizedMessage("review-config-message", "reviewSettingsLocked");
+  } else if (!reviewCreationInProgress && settingsLockedByAudit) {
+    setLocalizedMessage("review-config-message", "reviewSettingsLockedByAudit");
+  } else if (!reviewCreationInProgress && reviewSetupHasUnsavedChanges()) {
+    clearGeneratedPrompt();
     setLocalizedMessage("review-config-message", "reviewSettingsUnsaved");
-  } else if (reviewConfigMessage.dataset.translationKey === "reviewSettingsUnsaved") {
+  } else if (["reviewSettingsUnsaved", "reviewCreateBeforeContinue",
+      "reviewSettingsLocked", "reviewSettingsLockedByAudit"].includes(
+      reviewConfigMessage.dataset.translationKey)) {
     setMessage("review-config-message", "");
   }
   renderWizard();
@@ -1240,7 +1273,6 @@ async function reload() {
     if (exportButton) exportButton.disabled = !hasWorkspace;
     if (hasWorkspace) {
       state = await api("/api/data");
-      setReviewModeSelection(state.review_modes || ["code_audit", "golden_feature"]);
       updateActiveReviewLabel();
       renderProjectLabel();
       const previousModel = document.getElementById("model").value;
@@ -1256,7 +1288,6 @@ async function reload() {
         reports: {}, judgments: {}, leaderboard: [], review_modes: [],
         leaderboards: {code_audit: [], golden_feature: []},
       };
-      setReviewModeSelection(["code_audit", "golden_feature"]);
       updateActiveReviewLabel();
       renderProjectLabel();
       clear("model");
@@ -1271,7 +1302,9 @@ async function reload() {
     }
     if (workspaceChanged || reviewSetupBaselineResetRequested ||
         reviewSetupBaseline === null) {
-      rememberReviewSetupBaseline();
+      restoreReviewFocusControls(state.manifest || null);
+      reviewSetupPending = false;
+      reviewSetupBaseline = reviewSetupSignature();
       reviewSetupBaselineResetRequested = false;
     }
     renderJob(dashboardStatus.job);
@@ -1305,7 +1338,9 @@ function reconcileContestantSelection(previous, models, reports) {
 }
 // END contestant-selection
 // BEGIN wizard-state (pure helper, unit-tested under Node without a DOM)
-function deriveWizardState(status, data, repositoryInput, reviewSetupUnsaved = false) {
+function deriveWizardState(
+  status, data, repositoryInput, reviewSetupUnsaved = false, reviewSetupPending = false,
+) {
   const repositoryReady = status.repository_available === true &&
     String(repositoryInput || "").trim() === String(status.repository_path || "");
   const workspaceReady = repositoryReady && !!status.workspace && !!data.manifest;
@@ -1348,7 +1383,7 @@ function deriveWizardState(status, data, repositoryInput, reviewSetupUnsaved = f
     reportIds.every(reportFindingsReviewed));
   const rubricsReady = reportsReady && reportIds.every(reportRubricSaved);
   const adjudicationReady = findingsReady && rubricsReady;
-  const reviewStepReady = workspaceReady && !reviewSetupUnsaved;
+  const reviewStepReady = workspaceReady && !reviewSetupUnsaved && !reviewSetupPending;
   const complete = [repositoryReady, reviewStepReady, reportsReady, adjudicationReady];
   const unlocked = [true, false, false, false, false];
   for (let index = 1; index < unlocked.length; index += 1) {
@@ -1358,10 +1393,12 @@ function deriveWizardState(status, data, repositoryInput, reviewSetupUnsaved = f
     complete: complete,
     unlocked: unlocked,
     maxUnlocked: unlocked.lastIndexOf(true),
+    workspaceReady: workspaceReady,
     findingsReady: findingsReady,
     rubricsReady: rubricsReady,
     auditRunning: auditRunning,
     reviewSetupUnsaved: reviewSetupUnsaved,
+    reviewSetupPending: reviewSetupPending,
     reviewModes: reviewModes,
     auditSelected: auditSelected,
     featureSelected: featureSelected,
@@ -1376,8 +1413,11 @@ function wizardGateKeyFor(step, progress) {
   for (let gate = 0; gate < step; gate += 1) {
     if (progress.complete[gate]) continue;
     if (gate === 0) return "wizardRepoGate";
-    if (gate === 1) return progress.reviewSetupUnsaved
-      ? "wizardUnsavedReviewSettings" : "wizardReviewGate";
+    if (gate === 1) {
+      if (progress.reviewSetupPending) return "wizardReviewGate";
+      return progress.reviewSetupUnsaved
+        ? "wizardUnsavedReviewSettings" : "wizardReviewGate";
+    }
     if (gate === 2) return progress.auditRunning ? "wizardAuditRunning" : "wizardReportsGate";
     return progress.findingsReady ? "wizardRubricGate" : "wizardFindingsGate";
   }
@@ -1402,7 +1442,8 @@ function renderWizard() {
   }
   const repositoryInput = document.getElementById("repo-path").value;
   const progress = deriveWizardState(
-    dashboardStatus, state, repositoryInput, reviewSetupHasUnsavedChanges(),
+    dashboardStatus, state, repositoryInput,
+    reviewSetupHasUnsavedChanges(), reviewSetupPending,
   );
   wizardProgressState = progress;
   if (wizardCurrentStep === null) {
@@ -1441,11 +1482,15 @@ function renderWizard() {
   });
   document.querySelectorAll(".wizard-next").forEach(function (button) {
     const index = Number(button.dataset.wizardNext);
-    button.disabled = !progress.complete[index];
+    const canApplyReviewSettings = index === 1 && current === 1 &&
+      progress.workspaceReady && !progress.reviewSetupPending &&
+      !reviewSetupSaving && selectedReviewModes().length > 0;
+    button.disabled = index === 1
+      ? !canApplyReviewSettings : !progress.complete[index];
   });
   document.querySelectorAll(".wizard-back").forEach(function (button) {
     const index = Number(button.dataset.wizardBack);
-    button.disabled = index <= 0 || !progress.unlocked[index - 1];
+    button.disabled = reviewSetupSaving || index <= 0 || !progress.unlocked[index - 1];
   });
 }
 function goToWizardStep(index) {
@@ -1811,8 +1856,8 @@ async function openReview() {
   try {
     const reviewId = document.getElementById("review-history").value;
     await api("/api/reviews/open", { id: reviewId });
+    reviewSetupPending = false;
     reviewSetupBaselineResetRequested = true;
-    resetReviewFocusControls();
     setLocalizedMessage("workspace-message", "reviewOpened");
     await reload();
   } catch (error) {
@@ -1820,6 +1865,53 @@ async function openReview() {
   }
 }
 // BEGIN new-review
+function reviewSetupPayload() {
+  const reviewModes = selectedReviewModes();
+  const criteria = {};
+  document.querySelectorAll(".priority-slider").forEach(function (slider) {
+    criteria[slider.dataset.priorityId] = Number(slider.value);
+  });
+  const goldenFeatureAspects = Array.from(
+    document.querySelectorAll("[data-golden-feature-aspect]"),
+  ).filter(function (aspect) { return aspect.checked; })
+    .map(function (aspect) { return aspect.value; });
+  return {
+    review_modes: reviewModes,
+    review_focus: {
+      criteria: criteria,
+      custom_text: document.getElementById("focus-custom-text").value,
+      golden_feature_aspects: goldenFeatureAspects,
+    },
+  };
+}
+function restoreReviewFocusControls(manifest) {
+  const modes = manifest && Array.isArray(manifest.review_modes)
+    ? manifest.review_modes : ["code_audit", "golden_feature"];
+  const settings = manifest && manifest.review_focus_settings;
+  const criteria = settings && settings.criteria && typeof settings.criteria === "object"
+    ? settings.criteria : {};
+  const aspects = settings && Array.isArray(settings.golden_feature_aspects)
+    ? settings.golden_feature_aspects : [];
+  document.querySelectorAll("[data-review-mode]").forEach(function (input) {
+    input.checked = modes.includes(input.value);
+  });
+  document.querySelectorAll(".priority-slider").forEach(function (slider) {
+    const value = criteria[slider.dataset.priorityId];
+    slider.value = Number.isInteger(value) && value >= 0 && value <= 5
+      ? String(value) : slider.defaultValue;
+    updatePriorityLabel(slider);
+  });
+  document.getElementById("focus-custom-text").value =
+    settings && typeof settings.custom_text === "string" ? settings.custom_text : "";
+  document.querySelectorAll("[data-golden-feature-aspect]").forEach(function (aspect) {
+    aspect.checked = aspects.includes(aspect.value);
+  });
+  document.getElementById("audit-focus-config").hidden = !modes.includes("code_audit");
+  document.getElementById("golden-feature-aspects").hidden = !modes.includes("golden_feature");
+  setMessage("review-mode-message", modes.length ? "" : t("selectReviewMode"));
+  reviewSetupNeedsSave = !!dashboardStatus.review_id && !settings &&
+    !Object.keys(state.reports || {}).length;
+}
 function resetReviewFocusControls() {
   document.querySelectorAll(".priority-slider").forEach(function (slider) {
     slider.value = slider.defaultValue;
@@ -1833,6 +1925,37 @@ function resetReviewFocusControls() {
     mode.checked = true;
   });
   updateReviewModeControls();
+}
+function clearGeneratedPrompt() {
+  const prompt = document.getElementById("prompt-text");
+  prompt.textContent = "";
+  prompt.hidden = true;
+  document.getElementById("prompt-actions").hidden = true;
+  setMessage("prompt-message", "");
+}
+async function continueReviewSetup() {
+  if (reviewSetupSaving || reviewSetupPending || !wizardProgressState ||
+      !wizardProgressState.workspaceReady || !selectedReviewModes().length) return;
+  if (reviewSetupHasUnsavedChanges()) {
+    reviewSetupSaving = true;
+    setLocalizedMessage("workspace-message", "savingReviewSettings");
+    updateWorkspaceActions();
+    try {
+      await api("/api/reviews/settings", reviewSetupPayload());
+      rememberReviewSetupBaseline();
+      setLocalizedMessage("workspace-message", "reviewSettingsSaved");
+      await reload();
+    } catch (error) {
+      setRepositoryError("workspace-message", error);
+      return;
+    } finally {
+      reviewSetupSaving = false;
+      updateWorkspaceActions();
+    }
+  }
+  if (reviewSetupHasUnsavedChanges() || reviewSetupPending) return;
+  goToWizardStep(2);
+  await loadPrompt();
 }
 function prepareNewReview() {
   const selectedPath = document.getElementById("repo-path").value.trim();
@@ -1853,29 +1976,9 @@ async function createReview() {
   button.setAttribute("aria-busy", "true");
   button.textContent = t("creatingReview");
   setLocalizedMessage("workspace-message", "creatingReviewStatus");
+  updateWorkspaceActions();
   try {
-    const reviewModes = selectedReviewModes();
-    const auditSelected = reviewModes.includes("code_audit");
-    const featureSelected = reviewModes.includes("golden_feature");
-    const criteria = {};
-    if (auditSelected) {
-      document.querySelectorAll(".priority-slider").forEach(function (slider) {
-        criteria[slider.dataset.priorityId] = Number(slider.value);
-      });
-    }
-    const goldenFeatureAspects = Array.from(
-      document.querySelectorAll("[data-golden-feature-aspect]"),
-    ).filter(function (aspect) { return featureSelected && aspect.checked; })
-      .map(function (aspect) { return aspect.value; });
-    await api("/api/reviews", {
-      review_modes: reviewModes,
-      review_focus: {
-        criteria: criteria,
-        custom_text: auditSelected
-          ? document.getElementById("focus-custom-text").value : "",
-        golden_feature_aspects: goldenFeatureAspects,
-      },
-    });
+    await api("/api/reviews", reviewSetupPayload());
     updateWorkspaceActions();
     setLocalizedMessage("workspace-message", "reviewCreated");
     await reload();
@@ -2026,6 +2129,10 @@ document.getElementById("wizard-nav").addEventListener("click", function (event)
 });
 document.querySelectorAll(".wizard-next").forEach(function (button) {
   button.addEventListener("click", function () {
+    if (Number(button.dataset.wizardNext) === 1) {
+      continueReviewSetup();
+      return;
+    }
     goToWizardStep(Number(button.dataset.wizardNext) + 1);
   });
 });
@@ -2457,6 +2564,7 @@ def create_server(
                 "/api/folders", "/api/workspace/open", "/api/workspace/init", "/api/run",
                 "/api/rubric", "/api/adjudicate", "/api/import",
                 "/api/settings/repository", "/api/reviews", "/api/reviews/open",
+                "/api/reviews/settings",
             }
             if self.path not in allowed:
                 self._json(404, {"error": "Not found"})
@@ -2495,43 +2603,22 @@ def create_server(
                         raise ValueError(
                             "Provide only review_modes and review_focus when creating a review"
                         )
-                    review_modes = normalize_review_modes(payload.get("review_modes"))
+                    configuration = normalize_review_configuration(
+                        payload.get("review_modes"), payload.get("review_focus"),
+                    )
+                    review_modes = configuration["review_modes"]
                     repository_path = self.server.repository_path
                     if repository_path is None:
                         raise ValueError("Configure a Git repository before creating a review")
                     repository_path = validate_repository_root(repository_path)
-                    review_focus = payload.get("review_focus")
-                    golden_feature_aspects = []
-                    if review_focus is None:
-                        focus = DEFAULT_FOCUS
-                    else:
-                        required_focus_keys = {"criteria", "custom_text"}
-                        allowed_focus_keys = required_focus_keys | {"golden_feature_aspects"}
-                        if (not isinstance(review_focus, dict)
-                                or not required_focus_keys.issubset(review_focus)
-                                or set(review_focus) - allowed_focus_keys):
-                            raise ValueError(
-                                "review_focus must contain criteria and custom_text; "
-                                "golden_feature_aspects is optional"
-                            )
-                        focus = format_review_focus(
-                            review_focus["criteria"], review_focus["custom_text"],
-                        )
-                        golden_feature_aspects = review_focus.get(
-                            "golden_feature_aspects", [],
-                        )
-                        format_golden_feature_direction(golden_feature_aspects)
-                        if len(focus) > MAX_FOCUS_LENGTH:
-                            raise ValueError(
-                                "combined review focus must be no longer than 6000 characters"
-                            )
                     review_id = create_review_id()
                     created_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
                     workspace_path = review_directory(self.server.data_directory, review_id)
                     initialize_workspace(
-                        repository_path, workspace_path, focus,
-                        golden_feature_aspects=golden_feature_aspects,
+                        repository_path, workspace_path, configuration["focus"],
+                        golden_feature_aspects=configuration["golden_feature_aspects"],
                         review_modes=review_modes,
+                        review_focus_settings=configuration["review_focus_settings"],
                         review_id=review_id, created_at=created_at,
                     )
                     workspace_path = validate_workspace(workspace_path)
@@ -2545,6 +2632,33 @@ def create_server(
                     self._json(201, {
                         **data, "review_id": review_id, "created_at": created_at,
                     })
+                    return
+                if self.path == "/api/reviews/settings":
+                    if set(payload) != {"review_focus", "review_modes"}:
+                        raise ValueError("Provide only review_modes and review_focus")
+                    configuration = normalize_review_configuration(
+                        payload.get("review_modes"), payload.get("review_focus"),
+                    )
+                    if configuration["review_focus_settings"] is None:
+                        raise ValueError("review_focus settings are required")
+                    with self.server.state_lock:
+                        workspace_path = self.server.active_workspace
+                        if workspace_path is None:
+                            raise NoActiveWorkspace(
+                                "No active workspace. Open a review or create one first."
+                            )
+                        current_job = self.server.jobs.get(self.server.current_job_id)
+                        if (current_job and current_job["workspace"] == str(workspace_path)
+                                and current_job["status"] in {"queued", "running"}):
+                            raise RuntimeError(
+                                "Cannot change review settings while an audit is running"
+                            )
+                        update_workspace_review_configuration(
+                            workspace_path,
+                            configuration["review_modes"],
+                            payload["review_focus"],
+                        )
+                    self._json(200, _data(workspace_path))
                     return
                 if self.path == "/api/reviews/open":
                     if set(payload) != {"id"}:
