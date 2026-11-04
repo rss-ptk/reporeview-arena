@@ -283,6 +283,22 @@ def _report_error(exc: Exception, response_text: str, finish_reason: str | None,
     return "Model report does not match the required schema. Inspect the saved response."
 
 
+def _record_call(usage: dict[str, int], reply: Any, retried: int) -> dict[str, int]:
+    """Add one completed call to the audit totals and return its own token usage."""
+    usage["retries"] += retried
+    usage["calls"] += 1
+    observed = getattr(reply, "usage", None)
+    if not observed:
+        return {}
+    call_usage = {
+        "prompt_tokens": int(getattr(observed, "prompt_tokens", 0) or 0),
+        "completion_tokens": int(getattr(observed, "completion_tokens", 0) or 0),
+    }
+    usage["prompt_tokens"] += call_usage["prompt_tokens"]
+    usage["completion_tokens"] += call_usage["completion_tokens"]
+    return call_usage
+
+
 def _execute_tool(reader: RepositoryReader, name: str, args: dict[str, Any]) -> str:
     if name == "list_files":
         return reader.list_files(prefix=args.get("prefix", ""), limit=args.get("limit", 150))
@@ -390,28 +406,32 @@ async def audit_one(
             opts["api_base"] = model["api_base"]
         if extra_body:
             opts["extra_body"] = extra_body
-        if not final:
-            opts["tools"] = TOOLS
-            opts["tool_choice"] = "auto"
+        # Tools stay in every request, the final one included: they are part of the cached
+        # prompt prefix, so dropping them made the largest call of the run a cache miss.
+        # tool_choice "none" asks for the report instead of another round.
+        opts["tools"] = TOOLS
+        opts["tool_choice"] = "none" if final else "auto"
         reply, retried = await _complete(completion, opts, model_id, retries, retry_delay,
                                          workspace=workspace, run_id=run_id, step=step + 1,
                                          progress=progress)
-        usage["retries"] += retried
-        usage["calls"] += 1
-        last_call_usage = {}
-        observed = getattr(reply, "usage", None)
-        if observed:
-            call_prompt_tokens = int(getattr(observed, "prompt_tokens", 0) or 0)
-            call_completion_tokens = int(getattr(observed, "completion_tokens", 0) or 0)
-            usage["prompt_tokens"] += call_prompt_tokens
-            usage["completion_tokens"] += call_completion_tokens
-            last_call_usage = {
-                "prompt_tokens": call_prompt_tokens,
-                "completion_tokens": call_completion_tokens,
-            }
+        last_call_usage = _record_call(usage, reply, retried)
         answer = reply.choices[0].message
         content = getattr(answer, "content", "") or ""
         tool_calls = list(getattr(answer, "tool_calls", None) or [])
+        if final and tool_calls:
+            # Some providers ignore tool_choice "none". Ask once more without tools, as
+            # before, instead of discarding the audit; this extra call misses the cache.
+            print(f"[arena] {model_id} requested tools in its final call; "
+                  "asking again without tools.", flush=True)
+            without_tools = {key: value for key, value in opts.items()
+                             if key not in ("tools", "tool_choice")}
+            reply, retried = await _complete(completion, without_tools, model_id, retries,
+                                             retry_delay, workspace=workspace, run_id=run_id,
+                                             step=step + 2, progress=progress)
+            last_call_usage = _record_call(usage, reply, retried)
+            answer = reply.choices[0].message
+            content = getattr(answer, "content", "") or ""
+            tool_calls = list(getattr(answer, "tool_calls", None) or [])
         if not tool_calls or final:
             response_text = content
             finish_reason = getattr(reply.choices[0], "finish_reason", None)

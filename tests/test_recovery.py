@@ -215,7 +215,12 @@ async def test_tool_calls_after_budget_are_diagnosed_and_saved(workspace, struct
 
     result, = await audit_many(workspace, [MODEL], completion=completion, max_steps=1)
 
-    assert len(completion.calls) == 2
+    # Structured tool calls on the final call (tool_choice "none" ignored) get exactly
+    # one more request without tools; text-form calls are not retried.
+    assert len(completion.calls) == (3 if structured else 2)
+    assert completion.calls[1]["tool_choice"] == "none"
+    if structured:
+        assert "tools" not in completion.calls[2]
     assert "tool" in result["error"].lower()
     assert "budget" in result["error"].lower()
     artifact = json.loads((workspace / result["failure_file"]).read_text(encoding="utf-8"))

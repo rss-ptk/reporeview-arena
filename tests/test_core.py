@@ -444,7 +444,7 @@ async def test_openrouter_reasoning_sent_unchanged_on_every_call_including_final
     )
 
     assert len(calls) == 2
-    assert "tools" not in calls[1]  # the final report call
+    assert calls[1]["tool_choice"] == "none"  # the final report call
     assert [call["extra_body"]["reasoning"] for call in calls] == [{"max_tokens": 4000}] * 2
     assert [call["extra_body"]["provider"] for call in calls] == [{"sort": "price"}] * 2
     assert all(call["max_tokens"] == 16000 for call in calls)
@@ -547,9 +547,62 @@ async def test_tool_round_budget_keeps_request_prefix_stable(competition):
     assert calls[1]["messages"][-1]["role"] == "tool"
     assert calls[1]["messages"][-1]["content"].endswith("[arena] 1 of 2 tool rounds remaining.")
     assert calls[2]["messages"][-2]["content"].endswith("[arena] 0 of 2 tool rounds remaining.")
-    assert "tools" in calls[0] and "tools" in calls[1]
-    assert "tools" not in calls[2]
+    # Tools are part of the cached prefix, so the final call keeps them and only
+    # switches tool_choice to "none".
+    assert all(call["tools"] == orchestrator.TOOLS for call in calls)
+    assert [call["tool_choice"] for call in calls] == ["auto", "auto", "none"]
     assert "No more tools" in calls[2]["messages"][-1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_final_call_falls_back_once_without_tools_when_tool_choice_is_ignored(competition):
+    _, workspace, _ = competition
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        if "tools" in kwargs:  # every round, and a provider that ignores tool_choice "none"
+            tool = SimpleNamespace(id=f"t{len(calls)}", function=SimpleNamespace(
+                name="read_file", arguments='{"path":"main.py"}'))
+            message = SimpleNamespace(content="", tool_calls=[tool])
+        else:
+            message = SimpleNamespace(content=json.dumps(sample_report()), tool_calls=[])
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)],
+                               usage=SimpleNamespace(prompt_tokens=10, completion_tokens=2))
+
+    result = await audit_one(workspace, {"id": "mock", "model": "test/mock"},
+                             max_steps=2, completion=completion)
+
+    assert len(calls) == 4
+    assert calls[2]["tool_choice"] == "none"
+    assert "tools" not in calls[3] and "tool_choice" not in calls[3]
+    assert calls[3]["messages"] == calls[2]["messages"]
+    assert result["usage"]["calls"] == 4
+    assert result["usage"]["prompt_tokens"] == 40
+    attempts = result["usage_summary"]["attempts"]
+    assert attempts == 4
+    assert (workspace / "reports" / "mock.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_final_fallback_runs_only_once_before_reporting_failure(competition):
+    _, workspace, _ = competition
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        tool = SimpleNamespace(id=f"t{len(calls)}", function=SimpleNamespace(
+            name="read_file", arguments='{"path":"main.py"}'))
+        message = SimpleNamespace(content="", tool_calls=[tool])
+        return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="tool_calls")],
+                               usage=None)
+
+    result, = await audit_many(workspace, [{"id": "mock", "model": "test/mock"}],
+                               max_steps=1, completion=completion)
+
+    assert len(calls) == 3  # one round, the final call, one fallback without tools
+    assert result["stage"] == "report"
+    assert "requested more tools" in result["error"]
 
 
 def test_trim_history_cuts_in_one_block():
@@ -608,7 +661,8 @@ async def test_history_trim_keeps_prefix_stable_between_cuts(competition, monkey
 
     assert len(calls) == max_steps + 1
     for call in calls:
-        history = call["messages"][:-1] if "tools" not in call else call["messages"]
+        final = call["tool_choice"] == "none"  # its budget notice is appended after trimming
+        history = call["messages"][:-1] if final else call["messages"]
         assert len(json.dumps(history)) <= orchestrator.HISTORY_MAX_CHARS
     breaks = sum(after["messages"][:len(before["messages"])] != before["messages"]
                  for before, after in zip(calls, calls[1:]))
