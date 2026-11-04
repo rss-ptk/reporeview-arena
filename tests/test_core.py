@@ -232,6 +232,34 @@ async def test_model_audit_toolloop_offline_mock(competition):
 
 
 @pytest.mark.asyncio
+async def test_model_is_told_remaining_tool_rounds_and_final_report_budget(competition):
+    _, workspace, _ = competition
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        if len(calls) < 3:
+            tool = SimpleNamespace(id=f"t{len(calls)}", function=SimpleNamespace(
+                name="read_file", arguments='{"path":"main.py"}'))
+            message = SimpleNamespace(content="", tool_calls=[tool])
+        else:
+            message = SimpleNamespace(content=json.dumps(sample_report()), tool_calls=[])
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None)
+
+    await audit_one(workspace, {"id": "mock", "model": "test/mock"},
+                    max_steps=2, completion=completion)
+
+    for call, remaining in zip(calls, (2, 1, 0), strict=True):
+        system = call["messages"][0]["content"]
+        assert f"{remaining} of 2 tool rounds remaining" in system
+        assert "6 tool calls" in system
+    assert "tools" in calls[0] and "tools" in calls[1]
+    assert "tools" not in calls[2]
+    assert "No more tools" in calls[2]["messages"][-1]["content"]
+    assert calls[1]["messages"][-1]["role"] == "tool"
+
+
+@pytest.mark.asyncio
 async def test_model_audit_accepts_golden_feature_only_report(competition):
     _, workspace, manifest = competition
     manifest["review_modes"] = ["golden_feature"]

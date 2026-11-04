@@ -215,6 +215,13 @@ async def audit_one(
             batches.pop(0)
             messages = base_messages + [part for batch in batches for part in batch]
         final = step == max_steps
+        messages[0] = {**messages[0], "content": (
+            f"{base_messages[0]['content']} You have {max_steps - step} of {max_steps} "
+            "tool rounds remaining. A tool round is one assistant response requesting tools; "
+            "up to 6 tool calls are processed per round. Prioritize your investigation. "
+            "You may return your complete JSON report before using all rounds; once the "
+            "budget is exhausted, return it without tools and list unexamined areas in limitations."
+        )}
         if final:
             messages.append({"role": "user", "content": "Tool budget exhausted. Produce your complete single JSON report now with only verified citations; list unexamined areas in limitations. No more tools."})
         opts: dict[str, Any] = {
@@ -280,13 +287,21 @@ async def audit_one(
         )
         validate_locations(report, workspace / "snapshot")
     except (ValueError, TypeError, KeyError) as exc:
+        requested_tools = bool(tool_calls) or bool(re.search(r"<tool_call\s*>", response_text, re.I))
+        error = _report_error(exc, response_text, finish_reason, max_tokens)
+        if final and requested_tools and finish_reason != "length":
+            error = ("Model requested more tools after the tool budget was exhausted instead of "
+                     "returning a report. Increase --max-steps or try a different model.")
         details = {"error_type": type(exc).__name__, "stage": "report",
-                   "error": _report_error(exc, response_text, finish_reason, max_tokens)}
+                   "error": error}
         failure_file = Path("failures") / f"{model_id}.json"
         try:
             save_json(workspace / failure_file, {
                 **details, "model_id": model_id, "provider_model": model["model"],
                 "raw_response": response_text, "validation_error": str(exc),
+                "tool_calls": [{"id": call.id, "type": "function", "function": {
+                    "name": call.function.name, "arguments": call.function.arguments,
+                }} for call in tool_calls],
                 "finish_reason": finish_reason, "max_tokens": max_tokens,
                 "last_call_usage": last_call_usage, "usage": usage,
             })
