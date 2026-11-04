@@ -1306,6 +1306,7 @@ async function reload() {
       prompt.hidden = true;
       document.getElementById("prompt-actions").hidden = true;
       setMessage("prompt-message", "");
+      document.getElementById("confirm-send-code").checked = false;
     }
     const hasWorkspace = !!dashboardStatus.workspace;
     if (!initialRepositoryLoaded) {
@@ -2602,9 +2603,17 @@ def create_server(
         def _status(self) -> dict:
             models, model_error = _configured_models(self.server.models_path)
             with self.server.state_lock:
-                current_job = self.server.jobs.get(self.server.current_job_id)
-                job = deepcopy(current_job) if current_job else None
                 workspace_path = self.server.active_workspace
+                current_job = self.server.jobs.get(self.server.current_job_id)
+                # A finished job belongs to the review it ran in. An active job is
+                # shown everywhere because only one audit can run at a time.
+                if current_job and (
+                    current_job["status"] in {"queued", "running"}
+                    or current_job["workspace"] == str(workspace_path)
+                ):
+                    job = deepcopy(current_job)
+                else:
+                    job = None
                 review_id = self.server.active_review_id
                 repository_path = self.server.repository_path
                 repository_available = self.server.repository_available
