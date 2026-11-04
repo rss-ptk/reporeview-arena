@@ -38,7 +38,17 @@ def _money(value: Any) -> str | None:
     return str(number) if number.is_finite() and number >= 0 else None
 
 
-def _openrouter_endpoint(requested_model: str, api_base: str | None) -> bool:
+def _signed_money(value: Any) -> str | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    return str(number) if number.is_finite() else None
+
+
+def is_openrouter_endpoint(requested_model: str, api_base: str | None) -> bool:
     if not requested_model.startswith("openrouter/"):
         return False
     if not api_base:
@@ -56,7 +66,7 @@ def normalize_response(response: Any, requested_model: str, *, openrouter: bool 
     usage = _get(response, "usage")
     prompt = _get(usage, "prompt_tokens_details")
     completion = _get(usage, "completion_tokens_details")
-    is_openrouter = _openrouter_endpoint(requested_model, None) if openrouter is None else openrouter
+    is_openrouter = is_openrouter_endpoint(requested_model, None) if openrouter is None else openrouter
     cost = _money(_get(usage, "cost")) if is_openrouter else None
     source = "response" if cost is not None else None
     if is_openrouter and cost is None:
@@ -66,6 +76,12 @@ def normalize_response(response: Any, requested_model: str, *, openrouter: bool 
         if cost is not None:
             source = "litellm_openrouter_header"
     details = _get(usage, "cost_details")
+    cache_discount = _signed_money(_get(usage, "cache_discount")) if is_openrouter else None
+    cache_discount_source = "usage" if cache_discount is not None else None
+    if is_openrouter and cache_discount is None:
+        cache_discount = _signed_money(_get(response, "cache_discount"))
+        if cache_discount is not None:
+            cache_discount_source = "response"
     return {
         "generation_id": _identifier(_get(response, "id")),
         "resolved_model": _identifier(_get(response, "model")),
@@ -81,7 +97,8 @@ def normalize_response(response: Any, requested_model: str, *, openrouter: bool 
         },
         "cost": {"openrouter_credits_usd": cost,
                  "upstream_inference_usd": _money(_get(details, "upstream_inference_cost")) if is_openrouter else None,
-                 "source": source},
+                 "source": source, "cache_discount_usd": cache_discount,
+                 "cache_discount_source": cache_discount_source},
     }
 
 
@@ -96,15 +113,20 @@ def attempt_path(workspace: Path, run_id: str, model_id: str, step: int, attempt
 
 
 def start_attempt(workspace: Path, run_id: str, model_id: str, model: str,
-                  step: int, attempt: int, api_base: str | None = None) -> tuple[Path, dict[str, Any]]:
+                  step: int, attempt: int, api_base: str | None = None,
+                  session_id: str | None = None) -> tuple[Path, dict[str, Any]]:
     path = attempt_path(workspace, run_id, model_id, step, attempt)
+    openrouter_verified = is_openrouter_endpoint(model, api_base)
     record = {"schema_version": 1, "run_id": run_id, "model_id": model_id,
-              "requested_model": _identifier(model), "openrouter_verified": _openrouter_endpoint(model, api_base),
+              "requested_model": _identifier(model), "openrouter_verified": openrouter_verified,
+              "session_id": _identifier(session_id) if openrouter_verified else None,
               "step": step, "attempt": attempt,
               "started_at": datetime.now(timezone.utc).isoformat(), "status": "in_progress",
               "generation_id": None, "resolved_model": None, "provider": None, "is_byok": None,
               "usage": {field: None for field in TOKEN_FIELDS},
-              "cost": {"openrouter_credits_usd": None, "upstream_inference_usd": None, "source": None}}
+              "cost": {"openrouter_credits_usd": None, "upstream_inference_usd": None,
+                       "source": None, "cache_discount_usd": None,
+                       "cache_discount_source": None}}
     save_json(path, record)
     return path, record
 
@@ -141,6 +163,16 @@ def summarize(attempts: list[dict[str, Any]]) -> dict[str, Any]:
                                    "complete" if len(known) == len(attempts) else "partial"),
                    "token_coverage": coverage, "cache_rate_attempts": len(cache_pairs),
                    "cache_rate": str(Decimal(cache_read) / Decimal(cache_prompt)) if cache_prompt else None})
+    cache_discounts = [_signed_money(item.get("cost", {}).get("cache_discount_usd"))
+                       for item in attempts]
+    known_cache_discounts = [Decimal(value) for value in cache_discounts if value is not None]
+    totals.update({"known_cache_discount_attempts": len(known_cache_discounts),
+                   "unknown_cache_discount_attempts": len(attempts) - len(known_cache_discounts),
+                   "cache_discount_usd": (str(sum(known_cache_discounts, Decimal(0)))
+                                           if known_cache_discounts else None),
+                   "cache_discount_status": ("unavailable" if not known_cache_discounts else
+                                             "complete" if len(known_cache_discounts) == len(attempts)
+                                             else "partial")})
     return totals
 
 

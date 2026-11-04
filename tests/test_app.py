@@ -1128,6 +1128,7 @@ NEW_TRANSLATION_KEYS = {
     "serverAlertContextNoStatus", "serverRequestFailed", "serverUnreadableResponse",
     "reviewCreateBeforeContinue", "savingReviewSettings", "reviewSettingsSaved",
     "reviewSettingsLocked", "reviewSettingsLockedByAudit",
+    "usageCacheEffect", "usageDiscountCoverage", "usageSession",
     "reviewModes", "reviewModesDescription", "codeAuditMode", "goldenFeatureMode",
     "selectReviewMode", "codeAuditScoreboard", "goldenFeatureScoreboard", "auditScore",
     "featureScore", "proposal",
@@ -1200,6 +1201,19 @@ def test_dashboard_translations_stay_in_sync_and_cover_the_markup(dashboard):
     literal |= set(re.findall(r'setLocalizedMessage\("[^"]+",\s*"([A-Za-z0-9_]+)"', page))
     # "verdict_" is a dynamic prefix (t("verdict_" + value)), not a key.
     assert (used | {key for key in literal if not key.endswith("_")}) <= english
+
+
+def test_usage_panel_exposes_cache_effect_coverage_and_session(dashboard):
+    _, base_url, _ = dashboard
+    page = _served_page(base_url)
+
+    assert "usageCacheEffect" in page
+    assert "summary.cache_discount_usd" in page
+    assert "summary.known_cache_discount_attempts" in page
+    assert "cost.cache_discount_usd" in page
+    assert "attempt.session_id" in page
+    assert "cache-write surcharges" in page
+    assert "custos adicionais de gravação" in page
 
 
 def test_control_page_exposes_accessible_five_step_wizard(dashboard):

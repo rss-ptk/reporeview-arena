@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from reporeview_arena.usage import normalize_response, read_usage
+from reporeview_arena.usage import normalize_response, read_usage, summarize
 
 
 def test_normalizes_openrouter_usage_without_double_counting():
@@ -25,6 +25,49 @@ def test_normalizes_openrouter_usage_without_double_counting():
     assert data["cost"]["openrouter_credits_usd"] == "0"
     assert data["cost"]["upstream_inference_usd"] == "0.0002"
     assert data["generation_id"] == "gen-123"
+
+
+@pytest.mark.parametrize(("response", "expected", "source"), [
+    ({"usage": {"cache_discount": 0.0125}}, "0.0125", "usage"),
+    ({"usage": {}, "cache_discount": 0.0125}, "0.0125", "response"),
+    ({"usage": {"cache_discount": 0}}, "0", "usage"),
+    ({"usage": {"cache_discount": -0.0004}}, "-0.0004", "usage"),
+])
+def test_normalizes_signed_cache_discount(response, expected, source):
+    result = normalize_response(response, "openrouter/example/model")
+
+    assert result["cost"]["cache_discount_usd"] == expected
+    assert result["cost"]["cache_discount_source"] == source
+
+
+def test_cache_discount_normalizes_litellm_object_and_is_openrouter_only():
+    response = SimpleNamespace(usage=SimpleNamespace(cache_discount=-0.001))
+
+    assert normalize_response(response, "openrouter/example/model")["cost"]["cache_discount_usd"] == "-0.001"
+    assert normalize_response(response, "openai/example-model")["cost"]["cache_discount_usd"] is None
+
+
+def test_missing_cache_discount_remains_unknown():
+    result = normalize_response({"usage": {}}, "openrouter/example/model")
+
+    assert result["cost"]["cache_discount_usd"] is None
+    assert result["cost"]["cache_discount_source"] is None
+
+
+def test_cache_discount_summary_keeps_signed_decimal_and_coverage():
+    attempts = [
+        {"cost": {"cache_discount_usd": "0.01001", "openrouter_credits_usd": "0.1"}},
+        {"cost": {"cache_discount_usd": "-0.002", "openrouter_credits_usd": "0.2"}},
+        {"cost": {"cache_discount_usd": None, "openrouter_credits_usd": None}},
+    ]
+
+    result = summarize(attempts)
+
+    assert result["cache_discount_usd"] == "0.00801"
+    assert result["known_cache_discount_attempts"] == 2
+    assert result["unknown_cache_discount_attempts"] == 1
+    assert result["cache_discount_status"] == "partial"
+    assert result["openrouter_credits_usd"] == "0.3"
 
 
 def test_only_openrouter_hidden_cost_is_accepted():
@@ -69,7 +112,8 @@ def test_installed_litellm_transforms_openrouter_response_offline():
            "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120,
                      "prompt_tokens_details": {"cached_tokens": 40, "cache_write_tokens": 5},
                      "completion_tokens_details": {"reasoning_tokens": 10},
-                     "cost": 0.0012, "cost_details": {"upstream_inference_cost": 0.0009}}}
+                     "cost": 0.0012, "cache_discount": -0.0003,
+                     "cost_details": {"upstream_inference_cost": 0.0009}}}
     response = OpenrouterConfig().transform_response(
         model="vendor/model", raw_response=httpx.Response(200, json=raw),
         model_response=ModelResponse(), logging_obj=SimpleNamespace(post_call=lambda **kwargs: None),
@@ -80,6 +124,32 @@ def test_installed_litellm_transforms_openrouter_response_offline():
     assert result["usage"]["cache_write_tokens"] == 5
     assert result["cost"]["openrouter_credits_usd"] == "0.0012"
     assert result["cost"]["upstream_inference_usd"] == "0.0009"
+    assert result["cost"]["cache_discount_usd"] == "-0.0003"
+
+    raw["usage"].pop("cache_discount")
+    raw["cache_discount"] = 0.0004
+    response = OpenrouterConfig().transform_response(
+        model="vendor/model", raw_response=httpx.Response(200, json=raw),
+        model_response=ModelResponse(), logging_obj=SimpleNamespace(post_call=lambda **kwargs: None),
+        request_data={}, messages=[], optional_params={}, litellm_params={}, encoding=None,
+    )
+    result = normalize_response(response, "openrouter/vendor/model")
+    assert result["cost"]["cache_discount_usd"] == "0.0004"
+    assert result["cost"]["cache_discount_source"] == "response"
+
+
+def test_installed_litellm_openrouter_transform_forwards_session_id():
+    pytest.importorskip("litellm")
+    from litellm.llms.openrouter.chat.transformation import OpenrouterConfig
+
+    session_id = "reporeview-" + "a" * 32 + "-model"
+    body = OpenrouterConfig().transform_request(
+        model="vendor/model", messages=[{"role": "user", "content": "hello"}],
+        optional_params={"extra_body": {"session_id": session_id}},
+        litellm_params={}, headers={},
+    )
+
+    assert body["session_id"] == session_id
 
 
 @pytest.mark.asyncio
@@ -120,6 +190,24 @@ async def test_attempts_survive_failures_and_keep_costs_separate(tmp_path, monke
 
 def test_empty_workspace_has_no_fabricated_cost(tmp_path: Path):
     assert read_usage(tmp_path)["runs"] == []
+
+
+def test_legacy_attempt_without_cache_fields_remains_readable(tmp_path: Path):
+    run_id = "a" * 32
+    attempt_dir = tmp_path / "usage" / run_id / "old-model"
+    attempt_dir.mkdir(parents=True)
+    (attempt_dir / "001-01.json").write_text(json.dumps({
+        "run_id": run_id, "model_id": "old-model", "started_at": "2026-01-01T00:00:00+00:00",
+        "usage": {"prompt_tokens": 12, "completion_tokens": 4},
+        "cost": {"openrouter_credits_usd": "0.02"},
+    }), encoding="utf-8")
+
+    run = read_usage(tmp_path, run_id)["runs"][0]
+
+    assert run["summary"]["openrouter_credits_usd"] == "0.02"
+    assert run["summary"]["cache_discount_usd"] is None
+    assert run["summary"]["cache_discount_status"] == "unavailable"
+    assert run["summary"]["unknown_cache_discount_attempts"] == 1
 
 
 @pytest.mark.asyncio
@@ -190,6 +278,7 @@ def test_cli_usage_lists_history_and_filters_run(tmp_path, capsys):
     result = json.loads(capsys.readouterr().out)
     assert result["runs"][0]["summary"]["cost_status"] == "complete"
     assert result["runs"][0]["summary"]["openrouter_credits_usd"] == "0"
+    assert result["runs"][0]["summary"]["cache_discount_status"] == "unavailable"
 
 
 @pytest.mark.asyncio

@@ -15,7 +15,7 @@ from typing import Any, Callable
 from .reports import parse_report, validate_locations
 from .repository import RepositoryReader
 from .storage import load_json, save_json
-from .usage import finish_attempt, new_run_id, read_usage, start_attempt
+from .usage import finish_attempt, is_openrouter_endpoint, new_run_id, read_usage, start_attempt
 
 # Self-contained OpenAI function calling tool definitions; never expose shell commands.
 TOOLS = [
@@ -128,7 +128,8 @@ async def _complete(completion, opts: dict[str, Any], model_id: str,
     while True:
         try:
             path, record = start_attempt(workspace, run_id, model_id, opts["model"], step, attempt + 1,
-                                         api_base=opts.get("api_base"))
+                                         api_base=opts.get("api_base"),
+                                         session_id=(opts.get("extra_body") or {}).get("session_id"))
         except OSError as exc:
             raise AuditFailure({"error_type": "UsageWriteError", "stage": "usage",
                                 "error": "Could not save usage monitoring data; audit stopped."}) from exc
@@ -211,6 +212,8 @@ async def audit_one(
     """
     model_id = model_slug(model["id"])
     run_id = run_id or new_run_id()
+    session_id = (f"reporeview-{run_id}-{model_id}"
+                  if is_openrouter_endpoint(model["model"], model.get("api_base")) else None)
     if not 0 <= retries <= 5 or not 0 <= retry_delay <= 60:
         raise ValueError("retries must be between 0 and 5; retry_delay between 0 and 60 seconds")
     if completion is None:
@@ -259,6 +262,8 @@ async def audit_one(
             opts["max_tokens"] = max_tokens
         if model.get("api_base"):
             opts["api_base"] = model["api_base"]
+        if session_id is not None:
+            opts["extra_body"] = {"session_id": session_id}
         if not final:
             opts["tools"] = TOOLS
             opts["tool_choice"] = "auto"

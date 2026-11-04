@@ -272,6 +272,77 @@ async def test_model_audit_toolloop_offline_mock(competition):
 
 
 @pytest.mark.asyncio
+async def test_openrouter_session_id_is_stable_across_retries_and_rounds(competition):
+    _, workspace, _ = competition
+    from reporeview_arena.usage import new_run_id, read_usage
+
+    run_id = new_run_id()
+    calls = []
+    tool = SimpleNamespace(id="t1", function=SimpleNamespace(
+        name="read_file", arguments='{"path":"main.py"}'))
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise TimeoutError()
+        message = (SimpleNamespace(content="", tool_calls=[tool]) if len(calls) == 2 else
+                   SimpleNamespace(content=json.dumps(sample_report()), tool_calls=[]))
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None)
+
+    await audit_one(
+        workspace, {"id": "mock", "model": "openrouter/vendor/model"},
+        max_steps=1, retries=1, retry_delay=0, completion=completion, run_id=run_id,
+    )
+
+    expected = f"reporeview-{run_id}-mock"
+    assert [call["extra_body"]["session_id"] for call in calls] == [expected] * 3
+    attempts = read_usage(workspace, run_id)["runs"][0]["attempts"]
+    assert [item["session_id"] for item in attempts] == [expected] * 3
+
+
+@pytest.mark.asyncio
+async def test_openrouter_session_id_isolated_by_model_and_execution(competition):
+    _, workspace, _ = competition
+    from reporeview_arena.usage import read_usage
+
+    async def completion(**kwargs):
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+            content=json.dumps(sample_report()), tool_calls=[]))], usage=None)
+
+    models = [{"id": "first", "model": "openrouter/vendor/one"},
+              {"id": "second", "model": "openrouter/vendor/two"}]
+    first_run = await audit_many(workspace, models, completion=completion, concurrency=2)
+    first_records = read_usage(workspace, first_run[0]["run_id"])["runs"][0]["attempts"]
+    first_by_model = {item["model_id"]: item["session_id"] for item in first_records}
+    assert first_by_model["first"] != first_by_model["second"]
+
+    second_run = await audit_many(workspace, models, completion=completion, concurrency=2)
+    second_records = read_usage(workspace, second_run[0]["run_id"])["runs"][0]["attempts"]
+    second_by_model = {item["model_id"]: item["session_id"] for item in second_records}
+    assert first_by_model.keys() == second_by_model.keys()
+    assert set(first_by_model.values()).isdisjoint(second_by_model.values())
+
+
+@pytest.mark.asyncio
+async def test_openrouter_session_id_is_not_sent_to_unverified_endpoint(competition):
+    _, workspace, _ = competition
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+            content=json.dumps(sample_report()), tool_calls=[]))], usage=None)
+
+    await audit_one(
+        workspace, {"id": "proxy", "model": "openrouter/vendor/model",
+                    "api_base": "https://proxy.example/v1"},
+        completion=completion,
+    )
+
+    assert "extra_body" not in calls[0]
+
+
+@pytest.mark.asyncio
 async def test_model_is_told_remaining_tool_rounds_and_final_report_budget(competition):
     _, workspace, _ = competition
     calls = []

@@ -143,7 +143,7 @@ table{border-collapse:collapse;width:100%}td,th{padding:9px 8px;border-bottom:1p
 <div class="panel"><div class="row"><h3 data-i18n="generatedReviewPrompt">Generated review prompt</h3><button data-i18n="showPrompt" onclick="loadPrompt()">Show prompt</button></div><p class="muted" data-i18n="promptIntro">Copy this prompt into an IDE or another coding agent.</p><div id="prompt-actions" hidden><button data-i18n="copy" onclick="copyPrompt()">Copy</button> <button data-i18n="downloadPrompt" onclick="downloadPrompt()">Download prompt</button></div><pre id="prompt-text" class="promptbox" hidden></pre><div id="prompt-message" role="status"></div></div>
 </section>
 <section class="panel"><h3 data-i18n="importManualReport">Import manual report</h3><p class="muted" data-i18n="importExplanation">JSON report produced in any IDE or imported from another system. The model ID may contain only letters, digits, underscores and hyphens.</p><div class="formrow"><input id="importmodel" data-i18n-placeholder="modelIdPlaceholder" data-i18n-aria-label="modelIdLabel" placeholder="model-id"><input type="file" id="importfile" accept=".json,.md,.txt" data-i18n-aria-label="reportFile"><button data-i18n="import" onclick="importReport()">Import</button></div><div id="message" role="status"></div></section>
-<section class="panel"><h3 data-i18n="usageTitle">Usage and cost</h3><p class="muted" data-i18n="usageExplanation">Reported OpenRouter credits; missing costs are not treated as zero.</p><div id="usage-history"></div></section>
+<section class="panel"><h3 data-i18n="usageTitle">Usage and cost</h3><p class="muted" data-i18n="usageExplanation">Reported OpenRouter credits; cache effect is positive for reported savings and negative for cache-write surcharges. Missing values remain unknown.</p><div id="usage-history"></div></section>
 <div class="wizard-actions"><button type="button" class="wizard-back" data-wizard-back="2" data-i18n="wizardBack">Back</button><button type="button" class="primary wizard-next" data-wizard-next="2" data-i18n="wizardContinue">Continue</button></div>
 </section>
 <section class="wizard-panel" id="wizard-panel-3" data-wizard-panel="3" aria-labelledby="wizard-heading-3" hidden>
@@ -450,7 +450,7 @@ const translations = {
     pending: "Pending",
     tokens: "Tokens",
     usageTitle: "Usage and cost",
-    usageExplanation: "Reported OpenRouter credits; missing costs are not treated as zero.",
+    usageExplanation: "Reported OpenRouter credits; cache effect is positive for reported savings and negative for cache-write surcharges. Missing values remain unknown.",
     usageEmpty: "No usage records. Costs for older or imported reports are unavailable.",
     usageRun: "Run",
     usageAttempts: "Attempts",
@@ -459,6 +459,9 @@ const translations = {
     usageCache: "Cache read",
     usageCacheWrite: "Cache written",
     usageCacheRate: "Cache rate",
+    usageCacheEffect: "Cache cost effect",
+    usageDiscountCoverage: "{known} of {total} attempts with reported cache effect",
+    usageSession: "OpenRouter session",
     usageReasoning: "Reasoning",
     usageCost: "OpenRouter cost",
     usageUpstream: "Provider cost",
@@ -758,7 +761,7 @@ const translations = {
     pending: "Pendentes",
     tokens: "Tokens",
     usageTitle: "Uso e custo",
-    usageExplanation: "Créditos reportados pela OpenRouter; custos ausentes não são considerados zero.",
+    usageExplanation: "Créditos reportados pela OpenRouter; o efeito do cache é positivo para economias reportadas e negativo para custos adicionais de gravação. Valores ausentes permanecem indisponíveis.",
     usageEmpty: "Sem registros de uso. Custos de relatórios antigos ou importados não estão disponíveis.",
     usageRun: "Execução",
     usageAttempts: "Tentativas",
@@ -767,6 +770,9 @@ const translations = {
     usageCache: "Cache lido",
     usageCacheWrite: "Cache gravado",
     usageCacheRate: "Taxa de cache",
+    usageCacheEffect: "Efeito financeiro do cache",
+    usageDiscountCoverage: "{known} de {total} tentativas com efeito do cache reportado",
+    usageSession: "Sessão OpenRouter",
     usageReasoning: "Raciocínio",
     usageCost: "Custo OpenRouter",
     usageUpstream: "Custo do provedor",
@@ -1676,6 +1682,8 @@ function usageSummary(summary) {
     t("usageCacheWrite") + ": " + tokenValue("cache_write_tokens"),
     t("usageReasoning") + ": " + tokenValue("reasoning_tokens"),
     t("usageCacheRate") + ": " + (summary.cache_rate === null ? t("usageUnknown") : (Number(summary.cache_rate) * 100).toFixed(1) + "%") + " (" + summary.cache_rate_attempts + "/" + summary.attempts + ")",
+    t("usageCacheEffect") + ": " + (summary.cache_discount_usd === null ? t("usageUnknown") : "US$ " + summary.cache_discount_usd) + " (" + t("usage_" + summary.cache_discount_status) + ")",
+    t("usageDiscountCoverage", {known: summary.known_cache_discount_attempts, total: summary.attempts}),
     t("usageCost") + ": " + (summary.openrouter_credits_usd === null ? t("usageUnknown") : "US$ " + summary.openrouter_credits_usd) + " (" + t("usage_" + summary.cost_status) + ")",
     t("usageCoverage", {known: summary.known_cost_attempts, total: summary.attempts}),
   ].join(" · ");
@@ -1712,11 +1720,13 @@ function renderUsage() {
         t("usageCache") + ": " + usageValue(usage.cached_tokens),
         t("usageCacheWrite") + ": " + usageValue(usage.cache_write_tokens),
         t("usageReasoning") + ": " + usageValue(usage.reasoning_tokens),
+        t("usageCacheEffect") + ": " + (cost.cache_discount_usd == null ? t("usageUnknown") : "US$ " + cost.cache_discount_usd),
         t("usageCost") + ": " + (cost.openrouter_credits_usd == null ? t("usageUnknown") : "US$ " + cost.openrouter_credits_usd),
         t("usageUpstream") + ": " + (cost.upstream_inference_usd == null ? t("usageUnknown") : "US$ " + cost.upstream_inference_usd),
         t("usageGeneration") + ": " + usageValue(attempt.generation_id),
         t("usageModel") + ": " + usageValue(attempt.resolved_model),
         t("usageProvider") + ": " + usageValue(attempt.provider)];
+      if (attempt.session_id) fields.push(t("usageSession") + ": " + attempt.session_id);
       list.append(node("li", "detail", fields.join(" · ")));
     });
     section.append(list);
