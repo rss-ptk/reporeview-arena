@@ -28,7 +28,7 @@ from .modes import normalize_review_modes
 from .orchestrator import audit_many, model_slug
 from .reports import parse_report, validate_locations
 from .repository import validate_repository_root
-from .scoring import leaderboard, leaderboards
+from .scoring import InvalidJudgmentSeverity, leaderboard, leaderboards
 from .storage import load_json, save_json
 from .usage import read_usage
 from .workspace import (
@@ -2650,6 +2650,8 @@ def create_server(
                     self._json(200, _data(self._active_workspace()))
                 except NoActiveWorkspace as exc:
                     self._json(409, {"error": str(exc)})
+                except InvalidJudgmentSeverity as exc:
+                    self._json(400, {"error": str(exc)})
                 except (OSError, ValueError, KeyError, TypeError):
                     self._json(400, {"error": "Could not load the selected workspace."})
             elif self.path == "/api/prompt":

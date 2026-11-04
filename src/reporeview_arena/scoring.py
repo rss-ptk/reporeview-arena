@@ -9,6 +9,10 @@ from .modes import normalize_review_modes
 WEIGHTS = {"P0": 20, "P1": 10, "P2": 4, "P3": 1}
 
 
+class InvalidJudgmentSeverity(ValueError):
+    """Raised when a saved judgment uses a severity outside the scoring rubric."""
+
+
 def calculate(report: dict[str, Any], judgment: dict[str, Any]) -> dict[str, Any]:
     adjudications = judgment.get("findings", {})
     bugs = 0
@@ -25,6 +29,11 @@ def calculate(report: dict[str, Any], judgment: dict[str, Any]) -> dict[str, Any
             issue = str(decision.get("issue_key") or finding["id"])
             if issue not in rewarded_issues:
                 severity = decision.get("severity", finding["severity"])
+                if not isinstance(severity, str) or severity not in WEIGHTS:
+                    raise InvalidJudgmentSeverity(
+                        f"Invalid judgment severity for finding {finding['id']}; "
+                        "expected P0, P1, P2 or P3"
+                    )
                 bugs += WEIGHTS[severity]
                 rewarded_issues.add(issue)
             accepted += 1
