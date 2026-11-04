@@ -152,6 +152,24 @@ def test_installed_litellm_openrouter_transform_forwards_session_id():
     assert body["session_id"] == session_id
 
 
+def test_installed_litellm_openrouter_transform_forwards_provider_and_reasoning():
+    pytest.importorskip("litellm")
+    from litellm.llms.openrouter.chat.transformation import OpenrouterConfig
+
+    provider = {"sort": "price", "quantizations": ["fp8"]}
+    body = OpenrouterConfig().transform_request(
+        model="vendor/model", messages=[{"role": "user", "content": "hello"}],
+        optional_params={"extra_body": {"session_id": "s", "provider": provider,
+                                        "reasoning": {"max_tokens": 4000}},
+                         "max_tokens": 16000},
+        litellm_params={}, headers={},
+    )
+
+    assert body["provider"] == provider
+    assert body["reasoning"] == {"max_tokens": 4000}
+    assert body["max_tokens"] == 16000
+
+
 @pytest.mark.asyncio
 async def test_attempts_survive_failures_and_keep_costs_separate(tmp_path, monkeypatch):
     from reporeview_arena.orchestrator import audit_many

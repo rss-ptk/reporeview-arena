@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .app import _data, serve
 from .modes import rubric_fields_for_modes
-from .orchestrator import audit_many, model_slug, provider_preferences
+from .orchestrator import audit_many, model_slug, provider_preferences, reasoning_preferences
 from .reports import parse_report, validate_locations
 from .storage import load_json, save_json
 from .usage import read_usage
@@ -123,6 +123,7 @@ def execute(args: argparse.Namespace) -> None:
             if not m.get("model"):
                 raise ValueError("Each model must specify its LiteLLM model name")
             provider_preferences(m)
+            reasoning_preferences(m)
             if (workspace / "reports" / f"{m['id']}.json").exists():
                 raise ValueError(f"Refusing to overwrite an existing audit: {m['id']}")
         _load_provider_environment()

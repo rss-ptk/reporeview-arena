@@ -25,7 +25,7 @@ from .local_data import (
     save_repository_path,
 )
 from .modes import normalize_review_modes, rubric_fields_for_modes
-from .orchestrator import audit_many, model_slug, provider_preferences
+from .orchestrator import audit_many, model_slug, provider_preferences, reasoning_preferences
 from .reports import parse_report, validate_locations
 from .repository import validate_repository_root
 from .scoring import InvalidJudgmentSeverity, leaderboard, leaderboards
@@ -2330,6 +2330,7 @@ def _configured_models(models_path: Path | None) -> tuple[list[dict[str, str]], 
             if not isinstance(entry.get("model"), str) or not entry["model"].strip():
                 raise ValueError("Each enabled model must specify a LiteLLM model name")
             provider_preferences(entry)
+            reasoning_preferences(entry)
             seen.add(model_id)
             available.append({"id": model_id})
         if not available:
@@ -2919,6 +2920,7 @@ def create_server(
                         if not isinstance(model_name, str) or not model_name.strip():
                             raise ValueError("Each enabled model must specify a LiteLLM model name")
                         provider_preferences(entry)
+                        reasoning_preferences(entry)
                         if model_id in available:
                             raise ValueError("Model IDs must be unique")
                         available[model_id] = entry

@@ -1070,6 +1070,15 @@ def test_run_rejects_missing_config_duplicate_and_unauthorized_requests(dashboar
     assert "provider.order" in error["error"]
     assert not called
 
+    server.models_path.write_text(json.dumps({"models": [{
+        "id": "mock", "model": "openrouter/vendor/model", "max_tokens": 4000,
+        "reasoning": {"max_tokens": 4000},
+    }]}), encoding="utf-8")
+    status, error = _request(base_url, "/api/run", token=token, origin=base_url, payload=payload)
+    assert status == 400
+    assert "reasoning.max_tokens" in error["error"]
+    assert not called
+
 
 def test_only_one_audit_can_run_at_a_time(dashboard, tmp_path, monkeypatch):
     _, base_url, token = dashboard

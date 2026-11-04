@@ -20,6 +20,7 @@ from reporeview_arena.orchestrator import (
     audit_one,
     model_slug,
     provider_preferences,
+    reasoning_preferences,
 )
 from reporeview_arena.prompts import build_prompt
 from reporeview_arena.reports import parse_report, validate_locations
@@ -421,6 +422,98 @@ def test_provider_preferences_are_copied_and_order_explained():
     assert provider_preferences({"model": "openai/model"}) is None
     with pytest.raises(ValueError, match="sticky routing"):
         provider_preferences({"model": "openrouter/x/y", "provider": {"order": ["a"]}})
+
+
+@pytest.mark.asyncio
+async def test_openrouter_reasoning_sent_unchanged_on_every_call_including_final(competition):
+    _, workspace, _ = competition
+    calls = []
+    tool = SimpleNamespace(id="t1", function=SimpleNamespace(
+        name="read_file", arguments='{"path":"main.py"}'))
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+        message = (SimpleNamespace(content="", tool_calls=[tool]) if len(calls) == 1 else
+                   SimpleNamespace(content=json.dumps(sample_report()), tool_calls=[]))
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None)
+
+    await audit_one(
+        workspace, {"id": "mock", "model": "openrouter/vendor/model", "max_tokens": 16000,
+                    "reasoning": {"max_tokens": 4000}, "provider": {"sort": "price"}},
+        max_steps=1, completion=completion,
+    )
+
+    assert len(calls) == 2
+    assert "tools" not in calls[1]  # the final report call
+    assert [call["extra_body"]["reasoning"] for call in calls] == [{"max_tokens": 4000}] * 2
+    assert [call["extra_body"]["provider"] for call in calls] == [{"sort": "price"}] * 2
+    assert all(call["max_tokens"] == 16000 for call in calls)
+
+
+@pytest.mark.parametrize("model", [
+    {"model": "openrouter/vendor/model", "reasoning": {}},
+    {"model": "openrouter/vendor/model", "reasoning": "low"},
+    {"model": "openrouter/vendor/model", "reasoning": {"effort": "low", "max_tokens": 1000}},
+    {"model": "openrouter/vendor/model", "reasoning": {"exclude": True}},
+    {"model": "openrouter/vendor/model", "reasoning": {"effort": "tiny"}},
+    {"model": "openrouter/vendor/model", "reasoning": {"effort": ["low"]}},
+    {"model": "openrouter/vendor/model", "reasoning": {"max_tokens": 0}},
+    {"model": "openrouter/vendor/model", "reasoning": {"max_tokens": True}},
+    {"model": "openrouter/vendor/model", "reasoning": {"max_tokens": 1000.0}},
+    {"model": "openrouter/vendor/model", "max_tokens": 4000, "reasoning": {"max_tokens": 4000}},
+    {"model": "openai/model", "reasoning": {"effort": "low"}},
+    {"model": "openrouter/vendor/model", "api_base": "https://proxy.example/v1",
+     "reasoning": {"effort": "low"}},
+])
+@pytest.mark.asyncio
+async def test_invalid_reasoning_preferences_rejected_before_any_call(competition, model):
+    _, workspace, _ = competition
+    calls = []
+
+    async def completion(**kwargs):
+        calls.append(kwargs)
+
+    with pytest.raises(ValueError):
+        await audit_one(workspace, {"id": "mock", **model}, completion=completion)
+    assert not calls
+    assert not (workspace / "usage").exists()
+
+
+def test_reasoning_preferences_accept_effort_or_budget_below_output_limit():
+    assert reasoning_preferences({"model": "openai/model"}) is None
+    for effort in ("none", "minimal", "low", "medium", "high", "xhigh", "max"):
+        assert reasoning_preferences(
+            {"model": "openrouter/x/y", "reasoning": {"effort": effort}}) == {"effort": effort}
+    assert reasoning_preferences(
+        {"model": "openrouter/x/y", "reasoning": {"max_tokens": 8000}}) == {"max_tokens": 8000}
+    assert reasoning_preferences({"model": "openrouter/x/y", "max_tokens": 8001,
+                                  "reasoning": {"max_tokens": 8000}}) == {"max_tokens": 8000}
+    with pytest.raises(ValueError, match="whole report budget"):
+        reasoning_preferences({"model": "openrouter/x/y", "max_tokens": 8000,
+                               "reasoning": {"max_tokens": 9000}})
+
+
+@pytest.mark.asyncio
+async def test_truncated_report_failure_points_to_reasoning_and_saves_settings(competition):
+    _, workspace, _ = competition
+
+    async def completion(**kwargs):
+        message = SimpleNamespace(content="", tool_calls=[])
+        return SimpleNamespace(choices=[SimpleNamespace(message=message, finish_reason="length")],
+                               usage=None)
+
+    result, = await audit_many(
+        workspace, [{"id": "mock", "model": "openrouter/vendor/model", "max_tokens": 16384,
+                     "reasoning": {"effort": "low"}}],
+        completion=completion,
+    )
+
+    assert result["stage"] == "report"
+    assert "max_tokens=16,384" in result["error"]
+    assert "reasoning" in result["error"]
+    failure = load_json(workspace / "failures" / "mock.json")
+    assert failure["reasoning"] == {"effort": "low"}
+    assert failure["max_tokens"] == 16384
 
 
 @pytest.mark.asyncio

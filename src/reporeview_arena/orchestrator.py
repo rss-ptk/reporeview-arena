@@ -102,6 +102,39 @@ def provider_preferences(model: dict[str, Any]) -> dict[str, Any] | None:
     return result
 
 
+_REASONING_EFFORTS = frozenset({"none", "minimal", "low", "medium", "high", "xhigh", "max"})
+
+
+def reasoning_preferences(model: dict[str, Any]) -> dict[str, Any] | None:
+    """Validate a model's optional OpenRouter `reasoning` block.
+
+    Exactly one of effort or max_tokens. The block is sent unchanged on every call,
+    the final report included: some providers render reasoning settings into the
+    cached prompt prefix, so varying them between rounds would cost a cache miss.
+    """
+    prefs = model.get("reasoning")
+    if prefs is None:
+        return None
+    name = model.get("model")
+    if not isinstance(name, str) or not is_openrouter_endpoint(name, model.get("api_base")):
+        raise ValueError("reasoning preferences are only supported for OpenRouter models")
+    if not isinstance(prefs, dict) or len(prefs) != 1 or prefs.keys() - {"effort", "max_tokens"}:
+        raise ValueError("reasoning must set exactly one of effort or max_tokens")
+    if "effort" in prefs:
+        if not isinstance(prefs["effort"], str) or prefs["effort"] not in _REASONING_EFFORTS:
+            raise ValueError("reasoning.effort must be none, minimal, low, medium, high, "
+                             "xhigh or max")
+        return {"effort": prefs["effort"]}
+    budget = prefs["max_tokens"]
+    if type(budget) is not int or budget < 1:
+        raise ValueError("reasoning.max_tokens must be a positive integer")
+    output_limit = model.get("max_tokens")
+    if type(output_limit) is int and budget >= output_limit:
+        raise ValueError("reasoning.max_tokens must be lower than the model's max_tokens; "
+                         "otherwise reasoning can consume the whole report budget")
+    return {"max_tokens": budget}
+
+
 class AuditFailure(RuntimeError):
     """Public failure details, without SDK exception text or request payloads."""
 
@@ -226,15 +259,20 @@ def _report_error(exc: Exception, response_text: str, finish_reason: str | None,
     # Interpret our own validator's messages, but do not print interpolated model
     # fields (an invalid file path or severity could contain arbitrary output).
     validation_error = str(exc)
+    # Reasoning tokens count against the output limit, so a long reasoning phase can
+    # leave no room for the report: point to the reasoning budget as well.
     if finish_reason == "length":
         if type(max_tokens) is int:
             return (f"Model report was truncated at its configured output limit "
-                    f"(max_tokens={max_tokens:,}). Increase this model's max_tokens "
-                    "in models.json or request a shorter report.")
-        return ("Provider truncated the model report at its output limit. Set a per-model "
-                "max_tokens value in models.json or request a shorter report.")
+                    f"(max_tokens={max_tokens:,}). Reasoning counts toward this limit. "
+                    "Increase this model's max_tokens in models.json, cap its reasoning "
+                    "with a reasoning block, or request a shorter report.")
+        return ("Provider truncated the model report at its output limit. Reasoning counts "
+                "toward this limit. Set a per-model max_tokens value in models.json with a "
+                "lower reasoning budget, or request a shorter report.")
     if not response_text.strip():
-        return "Model returned an empty report. Check the output token budget and model compatibility."
+        return ("Model returned an empty report. Check the output token budget, the "
+                "model's reasoning settings and model compatibility.")
     if validation_error.startswith(("No JSON object", "Report must contain valid JSON",
                                     "Report must be a JSON object")):
         return "Model did not return a valid JSON report. Inspect the saved response."
@@ -289,13 +327,17 @@ async def audit_one(
     session_id = (f"reporeview-{run_id}-{model_id}"
                   if is_openrouter_endpoint(model["model"], model.get("api_base")) else None)
     # Identical on every call: OpenRouter keeps the session on one provider (sticky routing),
-    # while sort/quantizations/max_price only constrain which provider it starts on.
+    # while sort/quantizations/max_price only constrain which provider it starts on, and
+    # the reasoning budget never changes the request between rounds.
     extra_body: dict[str, Any] = {}
     if session_id is not None:
         extra_body["session_id"] = session_id
     provider = provider_preferences(model)
     if provider is not None:
         extra_body["provider"] = provider
+    reasoning = reasoning_preferences(model)
+    if reasoning is not None:
+        extra_body["reasoning"] = reasoning
     if not 0 <= retries <= 5 or not 0 <= retry_delay <= 60:
         raise ValueError("retries must be between 0 and 5; retry_delay between 0 and 60 seconds")
     if completion is None:
@@ -421,6 +463,7 @@ async def audit_one(
                     "name": call.function.name, "arguments": call.function.arguments,
                 }} for call in tool_calls],
                 "finish_reason": finish_reason, "max_tokens": max_tokens,
+                "reasoning": reasoning,
                 "last_call_usage": last_call_usage, "usage": usage,
             })
         except OSError:
