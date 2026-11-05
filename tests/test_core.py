@@ -444,7 +444,7 @@ async def test_openrouter_reasoning_sent_unchanged_on_every_call_including_final
     )
 
     assert len(calls) == 2
-    assert calls[1]["tool_choice"] == "none"  # the final report call
+    assert calls[1]["tool_choice"] == "auto"  # the final report call matches every round
     assert [call["extra_body"]["reasoning"] for call in calls] == [{"max_tokens": 4000}] * 2
     assert [call["extra_body"]["provider"] for call in calls] == [{"sort": "price"}] * 2
     assert all(call["max_tokens"] == 16000 for call in calls)
@@ -547,21 +547,21 @@ async def test_tool_round_budget_keeps_request_prefix_stable(competition):
     assert calls[1]["messages"][-1]["role"] == "tool"
     assert calls[1]["messages"][-1]["content"].endswith("[arena] 1 of 2 tool rounds remaining.")
     assert calls[2]["messages"][-2]["content"].endswith("[arena] 0 of 2 tool rounds remaining.")
-    # Tools are part of the cached prefix, so the final call keeps them and only
-    # switches tool_choice to "none".
+    # Tools and tool_choice shape the cached prefix, so the final call keeps both
+    # unchanged; tool_choice "none" made some providers miss the cache entirely.
     assert all(call["tools"] == orchestrator.TOOLS for call in calls)
-    assert [call["tool_choice"] for call in calls] == ["auto", "auto", "none"]
+    assert [call["tool_choice"] for call in calls] == ["auto", "auto", "auto"]
     assert "No more tools" in calls[2]["messages"][-1]["content"]
 
 
 @pytest.mark.asyncio
-async def test_final_call_falls_back_once_without_tools_when_tool_choice_is_ignored(competition):
+async def test_final_call_falls_back_once_without_tools_when_tools_are_requested(competition):
     _, workspace, _ = competition
     calls = []
 
     async def completion(**kwargs):
         calls.append(kwargs)
-        if "tools" in kwargs:  # every round, and a provider that ignores tool_choice "none"
+        if "tools" in kwargs:  # every round, and a final call that still requests tools
             tool = SimpleNamespace(id=f"t{len(calls)}", function=SimpleNamespace(
                 name="read_file", arguments='{"path":"main.py"}'))
             message = SimpleNamespace(content="", tool_calls=[tool])
@@ -574,7 +574,7 @@ async def test_final_call_falls_back_once_without_tools_when_tool_choice_is_igno
                              max_steps=2, completion=completion)
 
     assert len(calls) == 4
-    assert calls[2]["tool_choice"] == "none"
+    assert calls[2]["tool_choice"] == "auto"
     assert "tools" not in calls[3] and "tool_choice" not in calls[3]
     assert calls[3]["messages"] == calls[2]["messages"]
     assert result["usage"]["calls"] == 4
@@ -660,8 +660,8 @@ async def test_history_trim_keeps_prefix_stable_between_cuts(competition, monkey
                     max_steps=max_steps, completion=completion)
 
     assert len(calls) == max_steps + 1
-    for call in calls:
-        final = call["tool_choice"] == "none"  # its budget notice is appended after trimming
+    for index, call in enumerate(calls):
+        final = index == max_steps  # its budget notice is appended after trimming
         history = call["messages"][:-1] if final else call["messages"]
         assert len(json.dumps(history)) <= orchestrator.HISTORY_MAX_CHARS
     breaks = sum(after["messages"][:len(before["messages"])] != before["messages"]

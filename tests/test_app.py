@@ -1128,6 +1128,59 @@ def test_only_one_audit_can_run_at_a_time(dashboard, tmp_path, monkeypatch):
     assert result["job"]["status"] == "succeeded"
 
 
+def test_status_hides_finished_job_from_another_review(dashboard, tmp_path, monkeypatch):
+    server, base_url, token = dashboard
+    first = _workspace(tmp_path / "arena-a")
+    second = _workspace(tmp_path / "arena-b")
+    config = tmp_path / "models.json"
+    config.write_text(json.dumps({"models": [{"id": "mock", "model": "test/mock"}]}), encoding="utf-8")
+    server.models_path = config
+    started = Event()
+    release = Event()
+
+    async def audit_many(*args, progress, **kwargs):
+        progress({"model": "mock", "status": "running"})
+        started.set()
+        await asyncio.to_thread(release.wait, 3)
+        return [{"model": "mock", "findings": 6}]
+
+    monkeypatch.setattr(app, "audit_many", audit_many)
+    _request(base_url, "/api/workspace/open", token=token, origin=base_url,
+             payload={"path": str(first)})
+    try:
+        status, started_job = _request(
+            base_url, "/api/run", token=token, origin=base_url,
+            payload={"models": ["mock"], "confirm_send_code": True},
+        )
+        assert status == 202
+        assert started.wait(2)
+
+        _request(base_url, "/api/workspace/open", token=token, origin=base_url,
+                 payload={"path": str(second)})
+        _, running = _request(base_url, "/api/status")
+        assert running["job"]["id"] == started_job["job"]["id"]
+        assert running["job"]["status"] == "running"
+    finally:
+        release.set()
+
+    for _ in range(50):
+        _, polled = _request(base_url, f"/api/jobs/{started_job['job']['id']}")
+        if polled["job"]["status"] == "succeeded":
+            break
+        time.sleep(0.01)
+    assert polled["job"]["status"] == "succeeded"
+
+    _, other_review = _request(base_url, "/api/status")
+    assert other_review["workspace"] == str(second.resolve())
+    assert other_review["job"] is None
+
+    _request(base_url, "/api/workspace/open", token=token, origin=base_url,
+             payload={"path": str(first)})
+    _, own_review = _request(base_url, "/api/status")
+    assert own_review["job"]["status"] == "succeeded"
+    assert own_review["job"]["outcomes"] == [{"model": "mock", "findings": 6}]
+
+
 NODE = shutil.which("node")
 NEW_TRANSLATION_KEYS = {
     "contestantsToAudit", "contestantsDescription", "selectAllContestants",

@@ -283,6 +283,18 @@ def _report_error(exc: Exception, response_text: str, finish_reason: str | None,
     return "Model report does not match the required schema. Inspect the saved response."
 
 
+def _save_failure(workspace: Path, model_id: str, details: dict[str, Any],
+                  diagnostics: dict[str, Any]) -> None:
+    """Write failures/<model>.json and point the public details at it."""
+    failure_file = Path("failures") / f"{model_id}.json"
+    try:
+        save_json(workspace / failure_file, {**details, **diagnostics})
+    except OSError:
+        details["error"] += " Could not save the failed response locally."
+    else:
+        details["failure_file"] = failure_file.as_posix()
+
+
 def _record_call(usage: dict[str, int], reply: Any, retried: int) -> dict[str, int]:
     """Add one completed call to the audit totals and return its own token usage."""
     usage["retries"] += retried
@@ -388,77 +400,104 @@ async def audit_one(
     max_tokens = model.get("max_tokens")
     base_messages = list(messages)
     batches: list[list[dict[str, Any]]] = []
-    for step in range(max_steps + 1):
-        # Truncate old complete tool rounds in blocks before hitting the context limit.
-        _trim_history(base_messages, batches, HISTORY_MAX_CHARS, HISTORY_TRIM_TO_CHARS)
-        messages = base_messages + [part for batch in batches for part in batch]
-        final = step == max_steps
-        if final:
-            messages.append({"role": "user", "content": "Tool budget exhausted. Produce your complete single JSON report now with only verified citations; list unexamined areas in limitations. No more tools."})
-        opts: dict[str, Any] = {
-            "model": model["model"], "messages": messages, "timeout": timeout,
-            # Arena owns retries; disable SDK retries to keep the budget bounded.
-            "num_retries": 0, "max_retries": 0,
-        }
-        if max_tokens is not None:
-            opts["max_tokens"] = max_tokens
-        if model.get("api_base"):
-            opts["api_base"] = model["api_base"]
-        if extra_body:
-            opts["extra_body"] = extra_body
-        # Tools stay in every request, the final one included: they are part of the cached
-        # prompt prefix, so dropping them made the largest call of the run a cache miss.
-        # tool_choice "none" asks for the report instead of another round.
-        opts["tools"] = TOOLS
-        opts["tool_choice"] = "none" if final else "auto"
-        reply, retried = await _complete(completion, opts, model_id, retries, retry_delay,
-                                         workspace=workspace, run_id=run_id, step=step + 1,
-                                         progress=progress)
-        last_call_usage = _record_call(usage, reply, retried)
-        answer = reply.choices[0].message
-        content = getattr(answer, "content", "") or ""
-        tool_calls = list(getattr(answer, "tool_calls", None) or [])
-        if final and tool_calls:
-            # Some providers ignore tool_choice "none". Ask once more without tools, as
-            # before, instead of discarding the audit; this extra call misses the cache.
-            print(f"[arena] {model_id} requested tools in its final call; "
-                  "asking again without tools.", flush=True)
-            without_tools = {key: value for key, value in opts.items()
-                             if key not in ("tools", "tool_choice")}
-            reply, retried = await _complete(completion, without_tools, model_id, retries,
-                                             retry_delay, workspace=workspace, run_id=run_id,
-                                             step=step + 2, progress=progress)
-            last_call_usage = _record_call(usage, reply, retried)
-            answer = reply.choices[0].message
-            content = getattr(answer, "content", "") or ""
-            tool_calls = list(getattr(answer, "tool_calls", None) or [])
-        if not tool_calls or final:
-            response_text = content
-            finish_reason = getattr(reply.choices[0], "finish_reason", None)
-            break
-        batch: list[dict[str, Any]] = []
-        batch.append({"role": "assistant", "content": content, "tool_calls": [
-            {"id": t.id, "type": "function", "function": {
-                "name": t.function.name, "arguments": t.function.arguments}}
-            for t in tool_calls
-        ]})
-        for call in tool_calls[:6]:
+    tool_calls: list[Any] = []
+    step = 0
+    try:
+        for step in range(max_steps + 1):
+            # Truncate old complete tool rounds in blocks before hitting the context limit.
+            _trim_history(base_messages, batches, HISTORY_MAX_CHARS, HISTORY_TRIM_TO_CHARS)
+            messages = base_messages + [part for batch in batches for part in batch]
+            final = step == max_steps
+            if final:
+                messages.append({"role": "user", "content": "Tool budget exhausted. Produce your complete single JSON report now with only verified citations; list unexamined areas in limitations. No more tools."})
+            opts: dict[str, Any] = {
+                "model": model["model"], "messages": messages, "timeout": timeout,
+                # Arena owns retries; disable SDK retries to keep the budget bounded.
+                "num_retries": 0, "max_retries": 0,
+            }
+            if max_tokens is not None:
+                opts["max_tokens"] = max_tokens
+            if model.get("api_base"):
+                opts["api_base"] = model["api_base"]
+            if extra_body:
+                opts["extra_body"] = extra_body
+            # Every request, the final one included, carries the same tools and tool_choice:
+            # both shape the cached prompt prefix. Dropping tools, or switching to
+            # tool_choice "none" (some servers then render the prompt without them), made
+            # the largest call of the run a full cache miss. The final user message asks
+            # for the report instead.
+            opts["tools"] = TOOLS
+            opts["tool_choice"] = "auto"
             try:
-                args = json.loads(call.function.arguments or "{}")
-                if not isinstance(args, dict):
-                    raise ValueError("tool arguments must be an object")
-                result = _execute_tool(reader, call.function.name, args)
-            except (ValueError, TypeError, KeyError) as exc:
-                result = f"ERROR: {type(exc).__name__}: invalid tool arguments"
-            batch.append({"role": "tool", "tool_call_id": call.id, "content": result[:14_000]})
-            usage["tools"] += 1
-        # Providers can send multiple tools; preserve reply IDs with a tool response for each.
-        for call in tool_calls[6:]:
-            batch.append({"role": "tool", "tool_call_id": call.id, "content": "ERROR: per-turn tool call limit"})
-        # Written once when the round is recorded, so history only ever grows at the end.
-        batch[-1]["content"] += (f"\n\n[arena] {max_steps - step - 1} of {max_steps} "
-                                 "tool rounds remaining.")
-        batches.append(batch)
+                reply, retried = await _complete(completion, opts, model_id, retries, retry_delay,
+                                                 workspace=workspace, run_id=run_id, step=step + 1,
+                                                 progress=progress)
+            except AuditFailure as exc:
+                # A provider that rejects the final request still gets one plain request
+                # below, so the tool rounds already paid for are not discarded.
+                if not final or exc.details.get("http_status") != 400:
+                    raise
+                print(f"[arena] {model_id} rejected its final call (HTTP 400); "
+                      "asking again without tools.", flush=True)
+                reply = None
+            if reply is not None:
+                last_call_usage = _record_call(usage, reply, retried)
+                answer = reply.choices[0].message
+                content = getattr(answer, "content", "") or ""
+                tool_calls = list(getattr(answer, "tool_calls", None) or [])
+            if final and (reply is None or tool_calls):
+                # Ask once more without tools instead of discarding the audit; this extra
+                # call misses the cache.
+                if reply is not None:
+                    print(f"[arena] {model_id} requested tools in its final call; "
+                          "asking again without tools.", flush=True)
+                without_tools = {key: value for key, value in opts.items()
+                                 if key not in ("tools", "tool_choice")}
+                reply, retried = await _complete(completion, without_tools, model_id, retries,
+                                                 retry_delay, workspace=workspace, run_id=run_id,
+                                                 step=step + 2, progress=progress)
+                last_call_usage = _record_call(usage, reply, retried)
+                answer = reply.choices[0].message
+                content = getattr(answer, "content", "") or ""
+                tool_calls = list(getattr(answer, "tool_calls", None) or [])
+            if not tool_calls or final:
+                response_text = content
+                finish_reason = getattr(reply.choices[0], "finish_reason", None)
+                break
+            batch: list[dict[str, Any]] = []
+            batch.append({"role": "assistant", "content": content, "tool_calls": [
+                {"id": t.id, "type": "function", "function": {
+                    "name": t.function.name, "arguments": t.function.arguments}}
+                for t in tool_calls
+            ]})
+            for call in tool_calls[:6]:
+                try:
+                    args = json.loads(call.function.arguments or "{}")
+                    if not isinstance(args, dict):
+                        raise ValueError("tool arguments must be an object")
+                    result = _execute_tool(reader, call.function.name, args)
+                except (ValueError, TypeError, KeyError) as exc:
+                    result = f"ERROR: {type(exc).__name__}: invalid tool arguments"
+                batch.append({"role": "tool", "tool_call_id": call.id, "content": result[:14_000]})
+                usage["tools"] += 1
+            # Providers can send multiple tools; preserve reply IDs with a tool response for each.
+            for call in tool_calls[6:]:
+                batch.append({"role": "tool", "tool_call_id": call.id, "content": "ERROR: per-turn tool call limit"})
+            # Written once when the round is recorded, so history only ever grows at the end.
+            batch[-1]["content"] += (f"\n\n[arena] {max_steps - step - 1} of {max_steps} "
+                                     "tool rounds remaining.")
+            batches.append(batch)
+    except AuditFailure as exc:
+        # Without this record a provider failure left only the dashboard message behind,
+        # with no trace of how far the audit got. Only the public details are saved.
+        if exc.details.get("stage") == "provider":
+            _save_failure(workspace, model_id, exc.details, {
+                "model_id": model_id, "provider_model": model["model"],
+                "step": step + 1, "final_call": step == max_steps, "max_steps": max_steps,
+                "max_tokens": max_tokens, "reasoning": reasoning,
+                "last_call_usage": last_call_usage, "usage": usage,
+            })
+        raise
     try:
         manifest = load_json(workspace / "manifest.json")
         report = parse_report(
@@ -474,22 +513,16 @@ async def audit_one(
                      "returning a report. Increase --max-steps or try a different model.")
         details = {"error_type": type(exc).__name__, "stage": "report",
                    "error": error}
-        failure_file = Path("failures") / f"{model_id}.json"
-        try:
-            save_json(workspace / failure_file, {
-                **details, "model_id": model_id, "provider_model": model["model"],
-                "raw_response": response_text, "validation_error": str(exc),
-                "tool_calls": [{"id": call.id, "type": "function", "function": {
-                    "name": call.function.name, "arguments": call.function.arguments,
-                }} for call in tool_calls],
-                "finish_reason": finish_reason, "max_tokens": max_tokens,
-                "reasoning": reasoning,
-                "last_call_usage": last_call_usage, "usage": usage,
-            })
-        except OSError:
-            details["error"] += " Could not save the failed response locally."
-        else:
-            details["failure_file"] = failure_file.as_posix()
+        _save_failure(workspace, model_id, details, {
+            "model_id": model_id, "provider_model": model["model"],
+            "raw_response": response_text, "validation_error": str(exc),
+            "tool_calls": [{"id": call.id, "type": "function", "function": {
+                "name": call.function.name, "arguments": call.function.arguments,
+            }} for call in tool_calls],
+            "finish_reason": finish_reason, "max_tokens": max_tokens,
+            "reasoning": reasoning,
+            "last_call_usage": last_call_usage, "usage": usage,
+        })
         raise AuditFailure(details) from exc
     report["audit_metadata"] = {
         "model_id": model_id, "provider_model": model["model"], "run_id": run_id,
