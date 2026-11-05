@@ -160,7 +160,12 @@ async def test_nonretryable_provider_errors_have_safe_diagnostics(workspace, del
     assert result["error"] in printed.out
     assert SECRET not in printed.out + printed.err
     assert SECRET not in json.dumps(result)
-    assert not (workspace / "failures" / "mock.json").exists()
+    # The local failure record holds only the public details, never the SDK message.
+    assert result["failure_file"] == "failures/mock.json"
+    artifact = json.loads((workspace / result["failure_file"]).read_text(encoding="utf-8"))
+    assert artifact["stage"] == "provider"
+    assert artifact["http_status"] == status
+    assert artifact["step"] == 1 and artifact["final_call"] is False
     assert all(SECRET not in path.read_text(encoding="utf-8") for path in workspace.rglob("*.json"))
 
 
@@ -215,10 +220,10 @@ async def test_tool_calls_after_budget_are_diagnosed_and_saved(workspace, struct
 
     result, = await audit_many(workspace, [MODEL], completion=completion, max_steps=1)
 
-    # Structured tool calls on the final call (tool_choice "none" ignored) get exactly
-    # one more request without tools; text-form calls are not retried.
+    # Structured tool calls on the final call get exactly one more request without
+    # tools; text-form calls are not retried.
     assert len(completion.calls) == (3 if structured else 2)
-    assert completion.calls[1]["tool_choice"] == "none"
+    assert completion.calls[1]["tool_choice"] == "auto"
     if structured:
         assert "tools" not in completion.calls[2]
     assert "tool" in result["error"].lower()
@@ -228,6 +233,61 @@ async def test_tool_calls_after_budget_are_diagnosed_and_saved(workspace, struct
     if structured:
         assert artifact["tool_calls"][0]["function"]["arguments"] == '{"path":"main.py"}'
     assert not (workspace / "reports" / "mock.json").exists()
+
+
+def tool_round():
+    tool = SimpleNamespace(id="call-1", function=SimpleNamespace(
+        name="read_file", arguments='{"path":"main.py"}'))
+    round_reply = reply("")
+    round_reply.choices[0].message.tool_calls = [tool]
+    return round_reply
+
+
+@pytest.mark.asyncio
+async def test_final_call_rejected_with_400_is_asked_once_without_tools(workspace, delays):
+    completion = CompletionScript(tool_round(), ProviderFailure(400), reply())
+
+    result = await audit_one(workspace, MODEL, completion=completion, max_steps=1)
+
+    assert result["findings"] == 1
+    assert len(completion.calls) == 3
+    assert completion.calls[1]["tools"] and completion.calls[1]["tool_choice"] == "auto"
+    assert "tools" not in completion.calls[2] and "tool_choice" not in completion.calls[2]
+    assert completion.calls[2]["messages"] == completion.calls[1]["messages"]
+    assert delays == []
+    assert (workspace / "reports" / "mock.json").is_file()
+    assert not (workspace / "failures" / "mock.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_provider_failure_records_progress_and_400_fallback_runs_once(workspace, delays):
+    completion = CompletionScript(tool_round(), ProviderFailure(400), ProviderFailure(400))
+
+    result, = await audit_many(workspace, [MODEL], completion=completion, max_steps=1)
+
+    assert len(completion.calls) == 3  # one round, the final call, one fallback
+    assert result["stage"] == "provider"
+    assert result["http_status"] == 400
+    artifact = json.loads((workspace / result["failure_file"]).read_text(encoding="utf-8"))
+    assert artifact["step"] == 2 and artifact["final_call"] is True
+    assert artifact["max_steps"] == 1
+    assert artifact["usage"]["calls"] == 1
+    assert artifact["usage"]["tools"] == 1
+    assert artifact["usage"]["prompt_tokens"] == 3
+    assert SECRET not in json.dumps(artifact)
+
+
+@pytest.mark.asyncio
+async def test_400_in_a_tool_round_is_not_retried_without_tools(workspace, delays):
+    completion = CompletionScript(tool_round(), ProviderFailure(400), reply())
+
+    result, = await audit_many(workspace, [MODEL], completion=completion, max_steps=3)
+
+    assert len(completion.calls) == 2
+    assert all("tools" in call for call in completion.calls)
+    assert result["stage"] == "provider"
+    artifact = json.loads((workspace / result["failure_file"]).read_text(encoding="utf-8"))
+    assert artifact["step"] == 2 and artifact["final_call"] is False
 
 
 @pytest.mark.asyncio
